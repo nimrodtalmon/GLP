@@ -122,6 +122,13 @@ case "$NAME" in
     gff)  FILE=GFF;  OWNER="programs/gff";              PAPER="/Users/udi/Grassroots/GFF";  PLAYDIR=""
           PLAYAT="programs/apps/gff"; PLAYLIMIT=30000000 ;;   # the five persons' play, the same limit as Section APPS's
     agora) FILE=AGORA; OWNER="programs/currencies/agora"; PAPER="";                           PLAYDIR="" ;;
+    joint) FILE=JOINT; OWNER="programs/gas/joint"; PAPER=""; PLAYDIR="" ;;
+    lib) FILE=LIB; OWNER="programs/gas/lib"; PAPER=""; PLAYDIR="" ;;
+    stay) FILE=STAY; OWNER="programs/gas/stay"; PAPER=""; PLAYDIR="" ;;
+    fdao) FILE=FDAO; OWNER="programs/gas/fdao"; PAPER=""; PLAYDIR="" ;;
+    rec) FILE=REC; OWNER="programs/gas/rec"; PAPER=""; PLAYDIR="" ;;
+    ldao) FILE=LDAO; OWNER="programs/gas/ldao"; PAPER=""; PLAYDIR="" ;;
+    dao) FILE=DAO; OWNER="programs/gas/dao"; PAPER=""; PLAYDIR="" ;;
     *) echo "cascade.sh: no contract named $NAME; the names are gkk gsg gsn gsnp gc gb cssn gfwc gai gff agora" >&2; exit 2 ;;
 esac
 SRC="$GLP_DIR/$OWNER"
