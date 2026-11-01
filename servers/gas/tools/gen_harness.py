@@ -11,7 +11,7 @@ per person, fed by the host's cal(Person, N).
 import re, sys, os, shutil
 
 plat, out, name = sys.argv[1:4]
-src = open(plat).read()
+src = open(plat, encoding='utf-8').read()
 
 decls = {}
 for m in re.finditer(r'^([A-Z][A-Za-z]*(?:\([A-Z]\))?)\s*::=(.*?)\.\s*$', src, re.M | re.S):
@@ -106,5 +106,5 @@ hdr = f"""%% The live harness of the canonical CVA platform of {name} (platform.
 """
 os.makedirs(out, exist_ok=True)
 shutil.copy(plat, os.path.join(out, 'platform.vglp'))
-open(os.path.join(out, 'self.glp'), 'w').write(hdr + types + '\n' + body)
+open(os.path.join(out, 'self.glp'), 'w', encoding='utf-8', newline='\n').write(hdr + types + '\n' + body)
 print(name, 'calendar' if cal else '', len(need), 'types')

@@ -33,7 +33,7 @@ class P:
             if s.t[s.i] == ']': s.i += 1; return out
 
 def spec(path):
-    src = open(path).read()
+    src = open(path, encoding='utf-8').read()
     m = re.search(r'^Proposal ::=(.*?)\.\s*$', src, re.M | re.S)
     props = {}
     for alt in m.group(1).split(';'):
