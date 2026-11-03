@@ -299,3 +299,62 @@ tag(_, [], []).
 procedure tag_net(Stream(_)?, Stream(_)).
 tag_net([X|Xs], [net(X?)|Ts?]) :- tag_net(Xs?, Ts).
 tag_net([], []).
+
+exported procedure live_person(Peer?, HostIn?, Stream(Net)?).
+live_person(alice, Ins, NetIn) :-
+    split_person(Ins?, G, K),
+    platform # agent(alice, NetIn?, Out, T, K?, As),
+    platform # dispatch(As?, ch(G?, D), M),
+    to_person(M?, T?),
+    tee_net(Out?, Net, L),
+    send_to_net(Net?),
+    tag(alice, D?, S),
+    tag_net(L?, SN),
+    merge(S?, SN?, S1),
+    send_to_user(S1?).
+live_person(bob, Ins, NetIn) :-
+    split_person(Ins?, G, K),
+    platform # agent(bob, NetIn?, Out, T, K?, As),
+    platform # dispatch(As?, ch(G?, D), M),
+    to_person(M?, T?),
+    tee_net(Out?, Net, L),
+    send_to_net(Net?),
+    tag(bob, D?, S),
+    tag_net(L?, SN),
+    merge(S?, SN?, S1),
+    send_to_user(S1?).
+live_person(carol, Ins, NetIn) :-
+    split_person(Ins?, G, K),
+    platform # agent(carol, NetIn?, Out, T, K?, As),
+    platform # dispatch(As?, ch(G?, D), M),
+    to_person(M?, T?),
+    tee_net(Out?, Net, L),
+    send_to_net(Net?),
+    tag(carol, D?, S),
+    tag_net(L?, SN),
+    merge(S?, SN?, S1),
+    send_to_user(S1?).
+live_person(dave, Ins, NetIn) :-
+    split_person(Ins?, G, K),
+    platform # agent(dave, NetIn?, Out, T, K?, As),
+    platform # dispatch(As?, ch(G?, D), M),
+    to_person(M?, T?),
+    tee_net(Out?, Net, L),
+    send_to_net(Net?),
+    tag(dave, D?, S),
+    tag_net(L?, SN),
+    merge(S?, SN?, S1),
+    send_to_user(S1?).
+
+procedure split_person(HostIn?, PersonIn(Drawn), Stream(Integer)).
+split_person([g(G)|Ins], [G?|Gs?], Ks?) :- split_person(Ins?, Gs, Ks).
+split_person([cal(N)|Ins], Gs?, [N?|Ks?]) :- split_person(Ins?, Gs, Ks).
+split_person([_|Ins], Gs?, Ks?) :- otherwise | split_person(Ins?, Gs, Ks).
+
+%% The agent's network output, passed on whole, each message noted as route4 notes it.
+procedure(X, R) tee_net(Stream(Msg(X, R))?, Stream(Msg(X, R)), Stream(Sent(X))).
+tee_net([msg(To, M)|Ms], [msg(To?, M?)|Os?], Log?) :-
+    ground(To?), ground(M?) |
+    note(M?, To?, Log, Log1?),
+    tee_net(Ms?, Os, Log1).
+tee_net([], [], []).
