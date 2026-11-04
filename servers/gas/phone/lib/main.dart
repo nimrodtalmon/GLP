@@ -124,7 +124,7 @@ class _ShellState extends State<Shell> {
       // The key pair, made once and kept in a file of the app's own (the
       // platform keychain needs a signing entitlement this test bed lacks).
       final idFile = File('$base/identity.json');
-      final identity = idFile.existsSync()
+      var identity = idFile.existsSync()
           ? GrassrootsIdentity.fromMap(jsonDecode(idFile.readAsStringSync()) as Map<String, dynamic>)
           : await () async {
               final id = await GrassrootsIdentity.generate();
@@ -138,13 +138,20 @@ class _ShellState extends State<Shell> {
         me: glp.PubKey.fromList(identity.publicKey),
         privateKey: Uint8List.fromList(identity.privateKey),
         layers: () async => PhoneLayer(identity, sodium),
+        // Start over: the old pair kept aside under its key, a new one made.
+        fresh: () async {
+          final old = glp.PubKey.fromList(identity.publicKey).hex.substring(0, 16);
+          idFile.copySync('$base/identity-$old.json');
+          identity = await GrassrootsIdentity.generate();
+          idFile.writeAsStringSync(jsonEncode(identity.toJson()));
+          return (pub: glp.PubKey.fromList(identity.publicKey), priv: Uint8List.fromList(identity.privateKey));
+        },
       );
       final s = LocalServer(core: core, www: '$base/www');
       await s.start();
       server = s;
       final w = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(_bg)
         ..addJavaScriptChannel('GASNative', onMessageReceived: (m) => unawaited(_native(m.message)))
         ..setNavigationDelegate(NavigationDelegate(onPageFinished: (_) {
           _ready = true;
@@ -154,6 +161,9 @@ class _ShellState extends State<Shell> {
           _early.clear();
         }))
         ..loadRequest(Uri.parse(s.url));
+      // macOS's WebView has no background colour of its own (it throws); the
+      // page paints the same colour.
+      if (!Platform.isMacOS) await w.setBackgroundColor(_bg);
       setState(() => web = w);
       try {
         _links = AppLinks().uriLinkStream.listen((u) {
