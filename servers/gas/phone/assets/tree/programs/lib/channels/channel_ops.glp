@@ -1,0 +1,22 @@
+%% channel_ops.glp - Channel Operation Primitives
+%% Source: GLP Papers (Program: Channel Operations)
+%%
+%% Bidirectional channels are fundamental to concurrent communication.
+%% A channel is represented as ch(In?,Out) where In? is the input stream
+%% reader and Out is the output stream writer.
+%%
+%% These predicates are defined as guard predicates through unit clauses.
+
+procedure(X, Y) send(X?, Channel(Y, Stream(X))?, Channel(Y, Stream(X))).
+send(X, ch(In,[X?|Out?]), ch(In?,Out)).
+
+procedure(X, Y) receive(X, Channel(OpenStream(X), Y)?, Channel(Stream(X), Y)).
+receive(X?, ch([X|In],Out?), ch(In?,Out)).
+
+procedure(X, Y) new_channel(Channel(X, Y), Channel(Y, X)).
+new_channel(ch(Xs?,Ys), ch(Ys?,Xs)).
+
+%% send - adds message to output stream
+%% receive - removes message from input stream
+%% new_channel - creates paired channels where each channel's input
+%%   is paired with the other's output

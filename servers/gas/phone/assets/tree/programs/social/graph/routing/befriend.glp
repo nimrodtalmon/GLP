@@ -1,0 +1,65 @@
+
+%% Cross-lib dependency: the output routers (exposed at the root for platforms,
+%% but a sibling lib module is reached by explicit import + qualified call).
+imported procedure(M, Ent) output#send_user(M?, Stream(Ent)?, Stream(Ent)).
+imported procedure(M, Ent) output#add_friend_output(Key?, Stream(M), Stream(Ent)?, Stream(Ent)).
+
+%% The friend channel of a befriending without a setup channel (GSG paper,
+%% Sections 5.1 and 5.2, app:code).  The agent with the smaller identity, on
+%% reading the other's consent, tests already_friend and conveys: convey/7
+%% binds the conveyance to already_friends, or to friend(Ch) with a fresh
+%% friend channel, which it installs at once --- so it mints at most one
+%% channel per pair, whatever else is under way.  The agent with the larger
+%% identity, on reading friend(Ch), installs it by adopt/6.  Parameters,
+%% inferred at each call:
+%%   F   --- the friend channel's type, over the caller's own friend
+%%           messages, so that the channel minted is the caller's (CSSN
+%%           Section 8.4 befriends children through this routing).
+%%   Ent --- the output-entry union (must have friend_output and the agent
+%%           message used by connected/1).
+%%   NIM --- the network-input alphabet.  The friend channel's read side is
+%%           merged into NetIn (Stream(NIM)), which the checker admits where
+%%           the friend messages are a subtype of NIM, per instantiation.
+%% send_user / add_friend_output resolve from lib/routing/output (exposed at
+%% the root); merge / new_channel from root self.glp.
+
+%% Decision is the answer of already_friend, read by convey.
+Decision ::= yes ; no.
+
+%% Walk Outs, binding Decision to yes iff friend(Other) is already present.
+exported procedure(Ent) already_friend(Key?, Stream(Ent)?, Stream(Ent), Decision).
+already_friend(Other, [friend_output(O, Out?)|Rest], [friend_output(O?, Out)|Rest?], yes) :-
+    Other? =?= O? | true.
+already_friend(Other, [E|Rest], [E?|Rest1?], Decision?) :-
+    otherwise | already_friend(Other?, Rest?, Rest1, Decision).
+already_friend(_, [], [], no).
+
+%% Remove a friend_output by friend id (no-op if absent).  Exported: platforms'
+%% unfriend handlers call it.
+exported procedure(Ent) close_friend(Key?, Stream(Ent)?, Stream(Ent)).
+close_friend(_, [], []).
+close_friend(Name, [friend_output(K, [])|Rest], Rest?) :-
+    Name? =?= K? | true.
+close_friend(Name, [E|Rest], [E?|Rest1?]) :-
+    otherwise | close_friend(Name?, Rest?, Rest1).
+
+%% The proposer's conveyance.  Already a friend: convey already_friends, mint
+%% nothing, merge nothing.  Not yet a friend: mint a fresh friend channel,
+%% convey its peer end, install the local end (add_friend_output), tell the
+%% person, and merge its read side into NetIn.
+exported procedure(Ent, NIM, F) convey(Decision?, Key?, Conveyance(F), Stream(Ent)?, Stream(Ent), Stream(NIM)?, Stream(NIM)).
+convey(yes, _, already_friends, Outs, Outs?, NetIn, NetIn?).
+convey(no, Other, friend(PeerEnd?), Outs, Outs2?, NetIn, NetIn1?) :-
+    ground(Other?), new_channel(PeerEnd, ch(FIn, FOut?)) |
+    output # add_friend_output(Other?, FOut, Outs?, Outs1),
+    output # send_user(msg(agent, person, connected(Other?)), Outs1?, Outs2),
+    merge(NetIn?, FIn?, NetIn1).
+
+%% The acceptor's adoption of the friend channel conveyed: install its write
+%% end, tell the person, and merge its read side into NetIn.
+exported procedure(Ent, NIM, F) adopt(Key?, F?, Stream(Ent)?, Stream(Ent), Stream(NIM)?, Stream(NIM)).
+adopt(Other, ch(FIn, FOut?), Outs, Outs2?, NetIn, NetIn1?) :-
+    ground(Other?) |
+    output # add_friend_output(Other?, FOut, Outs?, Outs1),
+    output # send_user(msg(agent, person, connected(Other?)), Outs1?, Outs2),
+    merge(NetIn?, FIn?, NetIn1).

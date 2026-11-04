@@ -1,0 +1,73 @@
+%% home_ui.glp --- the super-app with a LIVE person.
+%%
+%% superapp(Id, Grants, NetIn), the super-app (GSG paper, Section 5.1), is
+%% defined in self.glp, the entry of the super-app's contract.
+%%
+%% superapp_ui(Id, Peers, Grants, NetIn) is the same super-app as a play: the
+%% harness the Flutter agent runtime starts, as
+%% programs/currencies/coins/play_ui.glp is the currency's.  Id is the
+%% person's key and Peers the keys of the peers the person knows, which an
+%% agent learns from its person (IGLP, Implementation Notes, "Boot"); the
+%% person's grants arrive on Grants, input(Id, P, R) as the bridge returns
+%% them from the person's acts on the constructs of home.vglp's questions
+%% (vGLP, sections/elicitation.tex, the paragraph "The implementation"), and
+%% the other half of the person channel --- the constructs the dispatcher
+%% draws and withdraws, and what the super-app tells the person, merged with
+%% them --- leaves by send_to_user/1, one term to a line, which is what the
+%% bridge reads.  The person's screen is therefore derived from the
+%% interactive types of home.vglp and from what the agent tells the person,
+%% and from nothing else.
+%%
+%% Behind the screen is the real super-app: the person's commands go to
+%% agent/4, which installs, invites and befriends as it does in every play.
+%% Each peer is scripted and shares the network with the person through a
+%% chain of route_to/4 (self.glp's), one for each agent by its key, so the
+%% person's Connect and Invite have someone to reach.  home/3 and its
+%% dispatcher are imported at the types of home.glp's exports, as superapp/3
+%% imports them (self.glp, HomeQuestion).  No clause here names a peer by an
+%% atom (IGLP, Remark "Agent Names").
+%%
+%% superapp_ui/4 is the harness of the app, not part of the super-app's
+%% contract; superapp/3 is the super-app.
+
+imported procedure home#home(Key?, AgentToUserStream?, Stream(UserInMsg), Stream(Ask(HomeQuestion))).
+imported procedure home#dispatch(Stream(Ask(HomeQuestion))?, PersonChannel(HomeDrawn)?, Channel(Stream(Input(HomeDrawn)), Stream(Output))).
+imported procedure agent#agent(Key?, UserInStream?, NetInStream?, OutputsList?).
+
+exported procedure superapp_ui(Key?, List(Key)?, PersonIn(HomeDrawn)?, NetInStream?).
+superapp_ui(Id, Peers, Grants, _) :-
+    ground(Id?) |
+    agent # agent(Id?, Cmds?, NetIn?, [user_output(Outs), net_output(NetOut)]),
+    split_out(Outs?, Shown, Seen),
+    home # home(Id?, Seen?, Cmds, Asks),
+    home # dispatch(Asks?, ch(Grants?, Draws), MCh),
+    show_notices(MCh?, Shown?),
+    send_to_user(Draws?),
+    merge(NetOut?, PeersOut?, All),
+    route_to(Id?, All?, NetIn, ToPeers),
+    scripted_peers(Peers?, ToPeers?, PeersOut).
+
+%% Each peer, scripted on its super-app's person interface (scripted_home/5,
+%% self.glp's), on the network messages addressed to it, the rest going on to
+%% the next peer.
+procedure scripted_peers(List(Key)?, NetOutStream?, NetOutStream).
+scripted_peers([P | Ps], Net, Out?) :-
+    ground(P?) |
+    route_to(P?, Net?, PNetIn, Rest),
+    agent # agent(P?, PIn?, PNetIn?, [user_output(POut), net_output(PNetOut)]),
+    scripted_home(P?, POut?, PNotices, PCmds?, PIn),
+    peer_answers(P?, PNotices?, PCmds),
+    scripted_peers(Ps?, Rest?, More),
+    merge(PNetOut?, More?, Out).
+scripted_peers([], _, []).
+
+%% A peer: he consents on his card to the person's request to connect, and,
+%% told of it, accepts whatever mini-app the person invites him to, so the
+%% person's Connect and Invite have someone to reach.
+procedure peer_answers(Key?, Stream(Output)?, UserInStream).
+peer_answers(Me, [msg(agent, person, befriend(From)) | Outs],
+             [msg(person, Me?, accept_invite(ping, From?)) | Cmds?]) :-
+    ground(Me?), ground(From?) |
+    peer_answers(Me?, Outs?, Cmds).
+peer_answers(Me, [_ | Outs], Cmds?) :- otherwise | peer_answers(Me?, Outs?, Cmds).
+peer_answers(_, [], []).

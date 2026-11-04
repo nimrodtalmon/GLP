@@ -1,0 +1,69 @@
+%% Printed by programs/sglp/transform.glp from the sGLP source in the term form
+%% (README.md, "The term form"); edit the source and run transform.sh, not this file.
+%% transform(panel, profiles)
+
+%% A person, its key, its role and its attributes (Section 3, Definition "Person, Census"): the source defines no Person, so it is that of the persons run n agents draws, person(K, agent, []).
+Person ::= person(Constant, Constant, List(Constant)).
+
+%% person(judge)
+%% binds(Panel, judge_panel)
+exported procedure
+judge_panel
+(
+Panel
+?
+,
+Person
+?
+,
+Integer?
+,
+MutualRef?
+,
+MutualRef?
+)
+.
+judge_panel(panel(Cs), _, S, Mon, _)
+:-
+judge(Cs?, S?, Mon?)
+.
+procedure
+judge
+(
+List(Card)
+?
+,
+Integer?
+,
+MutualRef?
+)
+.
+judge([card(_, A?) | Cs], S, Mon)
+:-
+random(S?, 2, K, S1)
+,
+stream_append(rated('/'(1, hour), Tok), Mon?, _)
+,
+verdict(Tok?, K?, slot(A))
+,
+judge(Cs?, S1?, Mon?)
+.
+judge([], _, _)
+.
+procedure
+verdict
+(
+Token?
+,
+Integer?
+,
+Slot(YesNo)
+?
+)
+.
+verdict(stop, _, _)
+.
+verdict(go, 1, slot(yes))
+.
+verdict(go, 2, slot(no))
+.

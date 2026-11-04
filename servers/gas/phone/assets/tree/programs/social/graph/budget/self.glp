@@ -1,0 +1,37 @@
+%% budget/self.glp --- the resource-bounded meta-interpreter of the super-app
+%% (SGSG paper, Section 6.3 and Appendix D), the stream counter it is partially
+%% evaluated against, and the plays that run both under a granting super-app.
+%% The listing in budget.glp is the specification of record for the paper's.
+
+%% A request for more budget.  The mini-app writes more(N1) with N1 unbound and
+%% keeps N1?; the super-app, reading the stream, assigns N1.  The position
+%% therefore carries the writer (typed-glp-manual 15B).
+BudgetRequest ::= more(Integer?).
+
+%% What bench/4 counts under: the mini-app unbudgeted (plain), the residual
+%% program under grants (residual), or bounded/3 under grants (meta).
+BenchKind ::= plain ; residual ; meta.
+
+imported procedure bounded # play_meta(Stream(Integer)).
+exported procedure play_meta(Stream(Integer)).
+play_meta(Out?) :- bounded # play_meta(Out).
+
+imported procedure bounded # play_residual(Stream(Integer)).
+exported procedure play_residual(Stream(Integer)).
+play_residual(Out?) :- bounded # play_residual(Out).
+
+imported procedure bounded # bench(BenchKind?, Integer?, Integer?, Integer).
+exported procedure bench(BenchKind?, Integer?, Integer?, Integer).
+bench(Which, N, K, Last?) :- bounded # bench(Which?, N?, K?, Last).
+
+imported procedure bounded # play_abort_waiting(Stream(Integer), Stream(BudgetRequest)).
+exported procedure play_abort_waiting(Stream(Integer), Stream(BudgetRequest)).
+play_abort_waiting(Out?, Rs?) :- bounded # play_abort_waiting(Out, Rs).
+
+imported procedure bounded # play_clean(Stream(Integer), Stream(BudgetRequest)).
+exported procedure play_clean(Stream(Integer), Stream(BudgetRequest)).
+play_clean(Out?, Rs?) :- bounded # play_clean(Out, Rs).
+
+imported procedure bounded # play_abort_interpreted(Stream(Integer), Stream(BudgetRequest), Constant).
+exported procedure play_abort_interpreted(Stream(Integer), Stream(BudgetRequest), Constant).
+play_abort_interpreted(Out?, Rs?, W?) :- bounded # play_abort_interpreted(Out, Rs, W).

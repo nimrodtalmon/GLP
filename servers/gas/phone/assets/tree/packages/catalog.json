@@ -1,0 +1,35 @@
+{
+ "gas": 1,
+ "contracts": [
+  {
+   "id": "GKK",
+   "title": "Grassroots Keys and Knowledge",
+   "hash": "43e92fe771b103ff3f8ff66bc156e78f55eb360f14e420e895a511acac130361",
+   "bytes": 305958,
+   "icon": "🔑",
+   "family": "identity",
+   "about": "Who you are and who you know: a key of your own, meeting people, introducing them.",
+   "built": "3a447303"
+  },
+  {
+   "id": "GC",
+   "title": "Grassroots Coins",
+   "hash": "59e2d1d663f9d65dcf86cadf9f9302fdb95a985ca5b4ec5e3b840e3beb2c0cfb",
+   "bytes": 312786,
+   "icon": "🪙",
+   "family": "money",
+   "about": "Personal currencies: everyone can issue their own coins.",
+   "built": "3a447303"
+  },
+  {
+   "id": "AGORA",
+   "title": "Grassroots Barter",
+   "hash": "c72f47ec6a82b510e45827c9215cba763737667d459990e24f38fc40ea8a1664",
+   "bytes": 422140,
+   "icon": "🧺",
+   "family": "money",
+   "about": "Barter: make things, post them on a market wall, trade them.",
+   "built": "3a447303"
+  }
+ ]
+}

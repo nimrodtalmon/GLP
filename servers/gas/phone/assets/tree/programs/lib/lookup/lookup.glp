@@ -1,0 +1,13 @@
+%% lookup.glp - Lookup in Association List
+%% Owner: GLP-ICLP (Program: Lookup in Association List)
+%%
+%% Finds the value associated with a key in a list of (Key, Value) pairs.
+%% The =?= guard tests ground equality; otherwise succeeds when no prior
+%% clause applies.
+
+procedure lookup(_?, _?, _).
+lookup(Key, [(K, Value)|_], Value?) :- Key? =?= K? | true.
+lookup(Key, [_|Rest], Value?) :- otherwise | lookup(Key?, Rest?, Value).
+
+%% Example initial goal:
+%% lookup(b, [(a,1),(b,2),(c,3)], V).   %% V = 2

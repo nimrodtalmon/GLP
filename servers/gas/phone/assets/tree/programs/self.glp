@@ -1,0 +1,972 @@
+% programs/self.glp — Root type and procedure declarations
+% This is the outermost ancestor in the scope chain, visible to every project.
+-mode(system).
+
+% Shared output/injection/introduction routers (A5 Stage B).  Exposed from the
+% root because it is the only common ancestor of social/* and the sibling
+% currencies/.  Each platform instantiates the parameterised routers at its own
+% entry-union and message types; per-instantiation checking validates each.
+-expose(social#graph#routing#output).
+-expose(social#graph#routing#inject).
+-expose(social#graph#routing#intro).
+-expose(social#graph#routing#befriend).
+
+% The sGLP monitor (programs/sglp/monitor.glp).  Exposed from the root because
+% it is the only common ancestor of programs/cssn and programs/sglp: CSSN's
+% simulation spawns it as sGLP's harnesses do (TGLP modules.tex, "The -expose
+% directive").
+-expose(sglp#monitor).
+
+% sGLP's shared module (programs/sglp/sglp.glp): the units of a horizon (Span,
+% span/2), the slot (Slot, fill/2) and the term form (SglpTerms,
+% terms_length/2).  Exposed from the root for the same reason as the monitor:
+% a simulation outside programs/sglp, as CSSN's, names Span and Slot in the
+% modules transform.sh --source prints and calls span/2 in its harness (TGLP
+% modules.tex, "The -expose directive").
+-expose(sglp#sglp).
+
+% =============================================================================
+% TYPE DEFINITIONS
+% =============================================================================
+
+% Collections (parameterized)
+Stream(X) ::= [] ; [X | Stream(X)].
+% A finite list: vGLP draws a list position as a list the person ends, a stream position as a stream.
+List(X) ::= [] ; [X | List(X)].
+OpenStream(X) ::= [X | Stream(X)].
+DiffList(X) ::= Stream(X) \ Stream(X)?.
+
+% Communication (parameterized)
+Channel(In, Out) ::= ch(In, Out?).
+
+% A closed stream: the empty stream, with no further elements.  Used to type the
+% close/1 defined guard, which consumes a closed read stream (see below).
+Closed ::= [].
+
+% Derived types.  The primitive types are Integer, Real, String and Module;
+% Number and Constant are defined here (TGLP appendix "GLP Language Primitives").
+Number ::= Integer ; Real.
+Constant ::= Number ; String ; Module.
+
+% The identity and signature types (GLP-Spec appendix-guards, "Predefined
+% types"; Secure GLP core.tex, §The Seam, where they are declared once for the
+% root scope).  A key is a person's public key, a hash a source or compiled
+% identity, a signed term the byte string sign/3 produces; all three are
+% carried as hex strings.  Each names a structure String already denotes, and
+% is declared all the same: it says what a value is for, and localises a change
+% of representation to one definition.
+Key ::= String.
+SignedTerm ::= String.
+Hash ::= String.
+
+% What signature/2 assigns (GLP-Spec appendix-guards, "Identity and
+% signature"): signed(Key, Hash, Term) where its argument is a signed term whose
+% signature verifies --- the signer's key, the identity of the module under
+% which the signature was made, and the term signed --- and unsigned otherwise.
+% The caller discriminates by matching.
+Signature ::= signed(Key, Hash, _) ; unsigned.
+
+% What peer_address/2 assigns (GLP-Spec appendix-guards, "Networking seam"):
+% address(S), S the address at which the networking layer observes the peer,
+% or none where it observes no address for it.  The caller discriminates by
+% matching, as it does a Signature.
+PeerAddress ::= address(String) ; none.
+
+% What declare/1 and remove/1 take (GLP-Spec appendix-guards, "Networking seam", 1ce0263): a declaration to the networking layer or the platform, of a peer the program knows, the address at which a peer is reached, a rendezvous server, a proximity underlay's cold-call trust level or a place with the stream of its events; and the end of a declaration.
+Declaration ::= peer(Key) ; address(Key, String) ; rendezvous(Key, String)
+      ; trust(Underlay, TrustLevel) ; place(Constant, Number, Stream(PlaceEvent)?).
+Removal ::= peer(Key) ; rendezvous(Key) ; place(Constant).
+Underlay ::= pan ; lan.
+TrustLevel ::= open ; closed.
+PlaceEvent ::= entered ; exited ; observable ; unobservable.
+
+% The global name of a link end, which the runtime reports when it holds a link
+% and authorise_link/2 answers (GLP-Spec appendix-guards, "Held links"): the
+% reader or writer end anchored at the agent named by Key, at an index.  Root
+% scope since 2026-09-18; programs/system/mad_predicates.glp defined it before.
+GlobalName ::= '_r'(Key, Integer) ; '_w'(Key, Integer).
+
+% A message to the network (GLP-Spec appendix-guards, "Output to the network
+% (send_to_net/1)"): msg(Q, T), Q the key of the agent it is sent to.  Declared
+% at what send_to_net/1's clause reads (GLP, 2026-10-13 20:39 UTC; GLP-Spec
+% b063ec9).
+NetMsg(X) ::= msg(Key, X).
+
+% The answer authorise_link/2 gives to a held link (GLP-Spec appendix-guards,
+% "Held links").
+Answer ::= authorise ; refuse.
+
+% What compile/2 assigns (GLP-Spec appendix-guards, "Compilation and file
+% reading"): the compiled module, or the stream of diagnostics that rejected
+% the program.  compile/2 itself is not yet implemented.
+Compiled ::= module(Module) ; error(Stream(String)).
+
+% What load_file/2 assigns (GLP-Spec appendix-guards, "Compilation and file
+% reading"): the module a file holds where it is a certified compiled program,
+% and its text otherwise, the caller discriminating with the string and module
+% guards.
+Content ::= String ; Module.
+
+% Arithmetic expressions: the union of Number with the arithmetic operators and
+% functions of the catalogue, each over Exp (TGLP appendix-root-self.tex) --- the
+% binary +, -, *, /, //, mod and pow, and the unary abs, sqrt, sin, cos, tan,
+% asin, acos, atan, exp, ln, log, integer, real, round, floor and ceil.  :=
+% evaluates an Exp, one clause per operator or function, below.
+Exp ::= Number
+      ; +(Exp, Exp) ; -(Exp, Exp) ; *(Exp, Exp) ; /(Exp, Exp) ; //(Exp, Exp)
+      ; mod(Exp, Exp) ; pow(Exp, Exp)
+      ; abs(Exp) ; sqrt(Exp) ; sin(Exp) ; cos(Exp) ; tan(Exp)
+      ; asin(Exp) ; acos(Exp) ; atan(Exp) ; exp(Exp) ; ln(Exp) ; log(Exp)
+      ; integer(Exp) ; real(Exp) ; round(Exp) ; floor(Exp) ; ceil(Exp).
+
+% Multiway merge (mwm/2 below).  Its input is a stream of merge(Stream(X))
+% terms, each carrying one stream to be merged into the output.
+MwmStream(X) ::= merge(Stream(X)).
+MwmInput(X) ::= [] ; [MwmStream(X) | MwmInput(X)].
+
+% Short-circuit termination token, threaded through mwm1/4 and mwm_copy/4.
+Done ::= done.
+
+% The super-app's entry templates and the types they name (GSG paper, Section
+% "The Grassroots Super-App", "Activation and joining" and "What the super-app
+% grants a mini-app"; TGLP modules.tex, Dynamic Activation, "Opaque types").
+% The super-app holds no declaration of a mini-app's types: it declares one
+% entry template, whose two type parameters D and T are the mini-app's own,
+% D what it draws for its person and T its root channels' messages (vGLP,
+% 2026-10-14 13:21 UTC, S2), and every mini-app declares its entry as the
+% template's instance at its D and T.  Declared
+% here, above every program, the lowest common ancestor of the super-app and
+% the mini-apps (GLP, 2026-10-13 12:52 UTC, O2; 20:04 UTC, item 2).  No type
+% parameter occurs as an alternative of a type definition (TGLP Definition
+% "Type Identity of a Type, Opaque Instance").
+%
+% The person channel (vGLP, Section 6.3, Definition "Person Channel, Person
+% Writer, GLP with Persons, Grant"; vGLP 2026-10-14 09:29, 21:48 and 22:32
+% UTC): the mini-app's end reads the person's grants, input(Id, P, R), Id the
+% construct, P the path of the position in it the grant writes, R the person's
+% input, and writes what the mini-app draws for its person, draw(Id, W, V), W
+% the widget, of type Widget, and V at T, and withdraw(Id); nothing merged, a
+% program's output reaching the person as the elements of the output thread,
+% construct 0.  Neither stream ends: the person and the program stay
+% connected, and a goal standing for the person waits on the draws when it
+% has nothing to grant.
+PersonChannel(T) ::= Channel(PersonIn(T), PersonOut(T)).
+PersonIn(T) ::= [Input(T) | PersonIn(T)].
+PersonOut(T) ::= [Draw(T) | PersonOut(T)].
+Input(T) ::= input(Integer, Path, T).
+Path ::= [] ; [Integer | Path].
+Draw(T) ::= draw(Integer, Widget, T) ; withdraw(Integer).
+
+% The widget in a draw (vGLP, Section 6.3: "Widget is the type of the terms
+% that draw widgets: the terms of the default widgets, built from the
+% constructors of Definition Default Widget, and, for a declared widget, the
+% term named(W, D) of the name W its declaration gives and the default widget
+% D of its type"; GLP #9 Cowork, 2026-10-20 09:22 UTC, item 4.1: "the root's
+% Widget has the alternative named(Constant, Widget)").  The default widgets
+% of Definition Default Widget, as the canonical compilation writes them: a
+% button, button(C), C a constant or []; a row of buttons, buttons(Cs); a
+% text field, text; a number field, number; a peer field, peer; a form headed
+% by its functor F, form(F, Fs), each field labelled by the name L of its
+% declared type, field(L, W), or, for a stream or a list inside a form the
+% person writes, submitted as a separate question and drawn under the form,
+% question(L, W); a menu, menu(Ws); a value the program writes, shown; a
+% picker, picker; a stream the person writes, input_box(W), and a list,
+% input_list(W); and a stream the program writes, a thread, thread(W), or
+% thread where its elements are shown.  The widget of a recursive type is
+% finite by a reference back to itself, rec(T, W) binding the name T of the
+% type to its widget W, within which ref(T) is T again ("a field of a
+% recursive type drawn when the person opens it").  A widget carries the
+% label its widget declaration gives it beside its constructor, label(S, W),
+% the widget W labelled S, and a constant in a row of buttons label(S, C)
+% (vGLP 1126f4f, Section 6.3: "Widget is the type of the terms that draw
+% widgets: the terms of the default widgets, built from the constructors of
+% Definition Default Widget, each carrying the label its widget declaration
+% gives it"; Section 6.2: "a widget term carries a label beside each
+% constructor of Definition Default Widget.  A construct family draws the
+% label it is given, and the name of the type where it is given none").  The
+% widget of a request a platform compiled from a contract with pragmas
+% proposes carries also where its button is drawn, act(P, W), P the term
+% place(T, M, Ps, Gs, Is, Ks, Ws): T the tab of its contract, M the place of the
+% person proposing it, Ps the places of the persons it names beside them,
+% which a person the view lists fills, Gs the groups it names, group(J, K),
+% the leader at place J and the group's name at place K, which a group the
+% view lists fills, Is the items it names, item(K, P), the speech act at
+% place K, which a row of the list of the predicate P fills, or atom(P, Ks),
+% an atom of the proposer's state agreeing at the places filled filling the
+% rest of Ks, or the precondition of the act at the proposer's role, req(P,
+% As) for an atom it requires or deletes there and forb(P, As) for one it
+% forbids, As the place of each argument, at(K), a group's, grp(J, K), or
+% any (vGLP feda043, Section 6.2), or unless(P, As), an atom of the viewer's
+% state from which the schemas prove that the person at a place holds an atom
+% the act forbids there (vGLP 893d4ea, Section 6.2), or proved(Q, Ws, P, As),
+% an atom of the viewer's state from which the schemas prove that the person at
+% a place holds the atom Q(Ws) its role requires, the place offering only a
+% person so proved (vGLP 3ec07a2, Section 6.2), or same(K, J), the places K
+% and J possibly one person, a field offering that person for both (GSC
+% 316d875, Section 2), or field(K), the place K a field of its pragma names,
+% which no row fills (vGLP b4022ce, Section 6.2: "only in the row of an entry
+% that fills the one place of the act its pragma's fields do not name") (vGLP 932c710,
+% Section 6.2: "a person, a group or an item"), Ks the places a field for a key fills where the peer is
+% not listed, and Ws the text of its request form, each word say(S) or the
+% person at place I, at(I) (vGLP, Section 6.2, "The words a platform shows":
+% "The button of an act that names, beside the person proposing it, a person
+% or a group is drawn beside each one the view lists, on whichever tab lists
+% it, and the button of an act that names none on the tab of its contract";
+% Section 5.4, "The contract's words": the question of an act with one
+% guarding role "is text of its request form";
+% programs/vglp/cva/compiler/README.md, "The pragmas").
+Widget ::= button(ButtonValue) ; buttons(List(ButtonValue))
+      ; text ; number ; peer
+      ; form(String, List(WidgetField)) ; menu(List(Widget))
+      ; shown ; picker
+      ; input_box(Widget) ; input_list(Widget)
+      ; thread ; thread(Widget)
+      ; rec(String, Widget) ; ref(String)
+      ; named(Constant, Widget)
+      ; label(String, Widget)
+      ; act(ActPlace, Widget).
+WidgetField ::= field(String, Widget) ; question(String, Widget).
+ButtonValue ::= Constant ; [] ; label(String, ButtonValue).
+ActPlace ::= place(String, Integer, List(Integer), List(GroupAt), List(ItemAt), List(Integer), List(FormWord)).
+GroupAt ::= group(Integer, Integer).
+ItemAt ::= item(Integer, Constant) ; pick(Integer, Constant) ; atom(Constant, List(Integer))
+      ; req(Constant, List(CondAt)) ; forb(Constant, List(CondAt))
+      ; unless(Constant, List(CondAt))
+      ; proved(Constant, List(Constant), Constant, List(CondAt))
+      ; same(Integer, Integer) ; field(Integer).
+CondAt ::= at(Integer) ; grp(Integer, Integer) ; any.
+FormWord ::= say(String) ; at(Integer).
+
+% The channel to the social graph (GSG, 2026-10-13 11:57 UTC, Udi: approved;
+% the held report and the warm call, GSG 2026-10-14 11:36 UTC, item 3, Udi:
+% "IGLP rules"): down it the social graph hands the mini-app each
+% conversation, the peer's key and one end of the root channel to the
+% execution of the same mini-app at the peer, and reports a held end by its
+% global name and the friend that passed it the end (IGLP madglp-spec, "Held
+% Links": the report pending_link(G, S), S the agent the name came from); up
+% it the mini-app, on its person's consent, asks for a warm call: an
+% introduction, by the friend that passed it the end, to the anchor the name
+% carries (GSG paper, Section "Distribution and Activation", "Contact between
+% two participants").
+RootChannel(T) ::= ch(Stream(T), Stream(T)?).
+Conversation(T) ::= conversation(Key, RootChannel(T)).
+SgToApp(T) ::= Conversation(T) ; held(GlobalName, Key).
+AppToSg ::= warm_call(GlobalName, Key).
+SgChannel(T) ::= ch(Stream(SgToApp(T)), Stream(AppToSg)?).
+
+% =============================================================================
+% BUILTIN PROCEDURE DECLARATIONS (no clauses - implemented by runtime)
+% =============================================================================
+
+% Type guards
+procedure integer(Integer?).
+procedure number(Number?).
+procedure real(Real?).
+procedure string(String?).
+procedure constant(Constant?).
+procedure compound(_?).
+procedure list(_?).
+procedure module(Module?).
+% Groundness guards
+procedure ground(_?).
+procedure known(_?).
+procedure unknown(_?).
+procedure no_readers(_?).
+
+% Time guards
+procedure wait(Number?).
+procedure wait_until(Number?).
+procedure when_idle.
+
+% Arithmetic comparison guards
+procedure <(Exp?, Exp?).
+procedure >(Exp?, Exp?).
+procedure =<(Exp?, Exp?).
+procedure >=(Exp?, Exp?).
+procedure =:=(Exp?, Exp?).
+procedure =\=(Exp?, Exp?).
+
+% The standard order of constants (GLP-Spec appendix-guards, 2bfb42b): a number
+% precedes a string; numbers compare by value, and strings by the codes of
+% their characters, lexicographically.
+procedure @<(Constant?, Constant?).
+
+% Equality guard
+procedure =?=(_?, _?).
+% Inequality guard, the negation of =?= (GLP-Spec appendix-guards.tex, 9064202)
+procedure =?\=(_?, _?).
+
+% Univ operations (term ↔ list conversion)
+procedure =..(_, Stream(_)?).      % Compose: Stream? → Compound
+procedure ..=(Stream(_), _?).      % Decompose: Compound? → Stream
+
+% MWM (Mutual Write Merge) runtime guard
+procedure is_mutual_ref(MutualRef?).
+
+% =============================================================================
+% BODY KERNELS (no clauses - implemented by runtime)
+% =============================================================================
+%
+% Body kernels get ordinary clause-less declarations here, like every other
+% runtime-implemented predicate (Udi, 2026-07-29).  Declaring them costs nothing
+% in access control: only a system module may name one in call position, so no
+% application module can call '_add' whatever this file declares (appendix
+% "Admission to the Primitive Layer"; GLP-Spec appendix-guards.tex, "Naming and
+% admission of body kernels").  What it buys is compile-time checking of a
+% kernel call's argument types and arity, and a loadable programs/system/ module:
+% the body-atom type checker demands a declaration for every body atom, so
+% without these a real system module that names a kernel failed to load with
+% "Undefined procedure: _send/3".
+%
+% Every kernel registered by runtime/body_kernels.dart and engine_v2/module_kernels.dart is here, and nothing else.  The signatures are GLP-Spec's appendix-guards.tex body-kernel table, which is the authority, and the Network group's rows are taken from it verbatim, '_declare' and '_remove' among them since 2026-11-03 (GLP-Spec 1ce0263, IGLP 3b736bb).  Each is in builtinProcedures, which is what lets it be declared at all: parser.dart admits a clause-less root declaration only for a name in that set.
+%
+% '_copy' is neither registered nor declared: d6760b3a unregistered the kernel
+% after its catalogue row was removed, and no caller in programs/ ever named it.
+%
+% This file may name them because it declares -mode(system).
+
+% Arithmetic
+procedure '_add'(Number?, Number?, Number).
+procedure '_sub'(Number?, Number?, Number).
+procedure '_mul'(Number?, Number?, Number).
+procedure '_div'(Number?, Number?, Number).
+procedure '_idiv'(Number?, Number?, Integer).
+procedure '_mod'(Number?, Number?, Integer).
+
+% Math
+procedure '_abs'(Number?, Number).
+procedure '_sqrt'(Number?, Number).
+procedure '_sin'(Number?, Number).
+procedure '_cos'(Number?, Number).
+procedure '_tan'(Number?, Number).
+procedure '_exp'(Number?, Number).
+procedure '_ln'(Number?, Number).
+procedure '_log10'(Number?, Number).
+procedure '_pow'(Number?, Number?, Number).
+procedure '_asin'(Number?, Number).
+procedure '_acos'(Number?, Number).
+procedure '_atan'(Number?, Number).
+
+% Conversion
+procedure '_integer'(Number?, Integer).
+procedure '_real'(Number?, Number).
+procedure '_round'(Number?, Integer).
+procedure '_floor'(Number?, Integer).
+procedure '_ceil'(Number?, Integer).
+
+% Structure
+procedure '_list_to_tuple'(Stream(_)?, _).
+procedure '_tuple_to_list'(_?, Stream(_)).
+
+% Time and random
+procedure '_now'(Integer).
+procedure '_random'(Integer?, Integer?, Integer, Integer).
+procedure '_split_random_seed'(Integer?, Integer, Integer).
+
+% MWM (Mutual Write Merge)
+procedure(X) '_allocate_mutual_reference'(MutualRef, Stream(X)).
+procedure(X) '_stream_append'(MutualRef?, X?, MutualRef).
+procedure '_close_mutual_reference'(MutualRef?).
+
+% Network
+procedure(X) '_send'(X?, GlobalName?, Key?).
+procedure '_authorise_link'(_?, _?).
+procedure '_peer_address'(Key?, PeerAddress).
+procedure '_punch_udp'(String?).
+procedure '_declare'(Declaration?).
+procedure '_remove'(Removal?).
+
+% Signature (GLP-Spec appendix-guards, the Signature kernel rows)
+procedure '_self_key'(Key).
+procedure '_sign'(_?, Key?, SignedTerm).
+procedure '_signature'(_?, Signature).
+
+% Modules as values
+procedure '_self_module'(Module).
+procedure '_decompose_module'(Module?, Key, Hash, Hash).
+procedure '_run'(_?, Module?).
+procedure '_run'(_?, Constant?, Module?).
+procedure '_find_type'(_?, Constant).
+procedure '_find_type'(_?, List(Constant)?, Constant).
+procedure '_opaque_type'(_?, Module?, List(Constant)).
+procedure '_load_file'(String?, Content).
+
+% I/O: the output kernel takes a term of any type, a parameter, so that a
+% stream of an opaque type reaches the person through send_to_user/1 (GLP,
+% 2026-10-14 11:15 UTC, item 1; GLP-Spec cd6fd8c, appendix-guards.tex, the
+% catalogue row).
+procedure(X) '_output'(X?).
+
+% =============================================================================
+% SINGLE-UNIT-CLAUSE PROCEDURES (DEFINED GUARDS)
+% =============================================================================
+
+% Assignment (unification)
+procedure(X) =(X, X?).
+X? = X.
+
+% Difference list operations
+procedure(X) dl_append(DiffList(X)?, DiffList(X)?, DiffList(X)).
+dl_append(A\B?, B\C?, A?\C).
+
+procedure(X) dl_to_list(DiffList(X)?, Stream(X)).
+dl_to_list(L\[], L?).
+
+% Channel operations
+procedure(X, Y) new_channel(Channel(X, Y), Channel(Y, X)).
+new_channel(ch(Xs?, Ys), ch(Ys?, Xs)).
+
+procedure(X, Y) send(X?, Channel(Y, Stream(X))?, Channel(Y, Stream(X))).
+send(X, ch(In, [X?|Out?]), ch(In?, Out)).
+
+% receive consumes a message from a non-empty read stream (OpenStream(X));
+% its continuation's read stream may be empty (Stream(X)).  A channel consumer
+% covers the closed read stream with the close guard below.
+procedure(X, Y) receive(X, Channel(OpenStream(X), Y)?, Channel(Stream(X), Y)).
+receive(X?, ch([X|In], Out?), ch(In?, Out)).
+
+% close consumes a closed read stream and closes the write stream.  Together with
+% receive it lets a channel consumer's two guarded clauses accept every input
+% path of the channel.
+procedure close(Channel(Closed, Closed)?).
+close(ch([], [])).
+
+% =============================================================================
+% STREAM UTILITIES (multi-clause)
+% =============================================================================
+
+procedure(X) merge(Stream(X)?, Stream(X)?, Stream(X)).
+merge([X|Xs], Ys, [X?|Zs?]) :- merge(Ys?, Xs?, Zs).
+merge(Xs, [Y|Ys], [Y?|Zs?]) :- merge(Xs?, Ys?, Zs).
+merge([], Ys, Ys?).
+merge(Xs, [], Xs?).
+
+% send_to_user/1 — system predicate emitting each ground term of the stream via
+% the _output kernel. Application modules reach user output by calling this (or a
+% local helper that calls it) rather than naming the reserved '_output' kernel.
+% Its element a parameter (GLP, 2026-10-13 20:22 UTC, D; GLP-Spec d690de8,
+% appendix-guards.tex): a host's stream of opaque terms reaches the person
+% as any other; the clause is unchanged, ground on the element.
+procedure(X) send_to_user(Stream(X)?).
+send_to_user([T | In]) :- ground(T?) | '_output'(T?), send_to_user(In?).
+send_to_user([]).
+
+% The super-app's entry template (GSG, 2026-10-13 11:57 UTC and 20:24 UTC;
+% the calendar, 20:59 UTC; Udi: approved): the person's key, the person
+% channel, the channel to the social graph, and the calendar, a stream of
+% dates the super-app writes from the device's clock, one a day, which a
+% mini-app that keeps no dates ignores (GSG paper, "What the super-app grants
+% a mini-app").  Two type parameters, one per channel (vGLP, 2026-10-14 13:21
+% UTC, S2; Udi: yes): D, what the mini-app draws for its person, formed by
+% vGLP's compiler from the wrapped drawn types and the grants' R types, and
+% T, the mini-app's own type, the messages of its root channels; neither
+% contains the other, and a hand-written mini-app chooses both.  One entry
+% name for every mini-app; never run here.
+procedure(D, T) miniapp(Key?, PersonChannel(D)?, SgChannel(T)?, Stream(Integer)?).
+miniapp(_, _, _, _).
+
+% The mini-app's scripted person (GSG, 2026-10-13 18:52 UTC, O5, and 20:22
+% UTC; Udi: approved): a mini-app exports it beside its entry, as this
+% template's instance at the D of its miniapp/4 instance (vGLP, 2026-10-14
+% 13:21 UTC, S2) and at S, the type of the screen it reports, chosen by the
+% mini-app (vGLP 2026-10-16 11:25 UTC, item 4; Udi: approved): the person's
+% key, a role choosing the script among the mini-app's own plays, the keys
+% the person knows, by which its script names its peers (GLP paper,
+% appendix-guards.tex, miniapp_person/5; IGLP, Implementation Notes, "Boot":
+% an agent learns its peers' keys from its person), the person-side end of
+% the person channel, and the screen it reports.  The super-app's plays
+% activate it from the module value as they activate the entry.  Never run
+% here.
+procedure(D, S) miniapp_person(Key?, Constant?, List(Key)?, Channel(PersonOut(D), PersonIn(D))?, Stream(S)).
+miniapp_person(_, _, _, _, []).
+
+% send_to_net/1 — the seam predicate to the network (GLP-Spec appendix-guards,
+% the seam-predicate row and "Output to the network (send_to_net/1)"; IGLP
+% madglp-spec.tex, Remark "Network Output Processing"): each element msg(Q, T)
+% of the stream, Q the key of an agent, is sent to agent Q, in order, through
+% '_send' on the link '_w'(Q, 0), Q's index-0 serializer; it ends when the
+% stream ends.  The guard ground(Q?) licenses Q's several occurrences.  A module
+% reaches the network through this predicate, the '_send' call being admitted
+% only to a system module, which this file is.
+procedure(X) send_to_net(Stream(NetMsg(X))?).
+send_to_net([msg(Q, T) | In]) :- ground(Q?) |
+    '_send'(msg(Q?, T?), '_w'(Q?, 0), Q?), send_to_net(In?).
+send_to_net([]).
+
+% global_send/3 — IGLP's system predicate (madglp-spec.tex, Definition
+% "global_send Predicate"): global_send(T, G, Q) sends the value of the reader T,
+% once known, on the link G, '_r'(P, I) or '_w'(P, I), to agent Q.  It is the
+% goal Globalize spawns for an exported reader and Localize for an imported
+% writer; the runtime registers that goal as a callback on the writer's cell
+% (IGLP Implementation Notes, "The global_send goal"), and these clauses are
+% its definition.  A root helper outside the catalogue, like mwm1/4 (GLP-Spec
+% appendix-guards: "a system module may define others for its own use"); its
+% declaration is the '_send' kernel's.
+procedure(X) global_send(X?, GlobalName?, Key?).
+global_send(T, G, Q) :- known(T?) | '_send'(T?, G?, Q?).
+
+% =============================================================================
+% ARITHMETIC ASSIGNMENT (:=/2)
+% =============================================================================
+
+procedure :=(Number, Exp?).
+
+% Base case: plain number
+Result? := N :- number(N?) | Result = N?.
+
+% Addition
+Result? := X + Y :-
+  number(X?), number(Y?) |
+  '_add'(X?, Y?, Result).
+Result? := X + Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? + Y1?.
+
+% Subtraction
+Result? := X - Y :-
+  number(X?), number(Y?) |
+  '_sub'(X?, Y?, Result).
+Result? := X - Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? - Y1?.
+
+% Multiplication
+Result? := X * Y :-
+  number(X?), number(Y?) |
+  '_mul'(X?, Y?, Result).
+Result? := X * Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? * Y1?.
+
+% Division (always returns float).  A zero divisor is '_div''s to abort on: a
+% body kernel either succeeds or aborts (GLP-Spec appendix-guards).
+Result? := X / Y :-
+  number(X?), number(Y?) |
+  '_div'(X?, Y?, Result).
+Result? := X / Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? / Y1?.
+
+% Integer division.  A zero divisor or an operand that is no integer is
+% '_idiv''s to abort on (GLP-Spec appendix-guards.tex).
+Result? := X // Y :-
+  number(X?), number(Y?) |
+  '_idiv'(X?, Y?, Result).
+Result? := X // Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? // Y1?.
+
+% Modulo.  A zero divisor or an operand that is no integer is '_mod''s to
+% abort on (GLP-Spec appendix-guards.tex).
+Result? := X mod Y :-
+  number(X?), number(Y?) |
+  '_mod'(X?, Y?, Result).
+Result? := X mod Y :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := X1? mod Y1?.
+
+% Absolute value
+Result? := abs(X) :-
+  number(X?) |
+  '_abs'(X?, Result).
+Result? := abs(X) :-
+  otherwise |
+  X1 := X?,
+  Result := abs(X1?).
+
+% Square root.  A negative argument is '_sqrt''s to abort on: a body kernel
+% whose precondition fails aborts (GLP-Spec appendix-guards).
+Result? := sqrt(X) :-
+  number(X?) |
+  '_sqrt'(X?, Result).
+Result? := sqrt(X) :-
+  otherwise |
+  X1 := X?,
+  Result := sqrt(X1?).
+
+% Sine
+Result? := sin(X) :-
+  number(X?) |
+  '_sin'(X?, Result).
+Result? := sin(X) :-
+  otherwise |
+  X1 := X?,
+  Result := sin(X1?).
+
+% Cosine
+Result? := cos(X) :-
+  number(X?) |
+  '_cos'(X?, Result).
+Result? := cos(X) :-
+  otherwise |
+  X1 := X?,
+  Result := cos(X1?).
+
+% Tangent
+Result? := tan(X) :-
+  number(X?) |
+  '_tan'(X?, Result).
+Result? := tan(X) :-
+  otherwise |
+  X1 := X?,
+  Result := tan(X1?).
+
+% Exponential
+Result? := exp(X) :-
+  number(X?) |
+  '_exp'(X?, Result).
+Result? := exp(X) :-
+  otherwise |
+  X1 := X?,
+  Result := exp(X1?).
+
+% Natural logarithm.  A non-positive argument is '_ln''s to abort on.
+Result? := ln(X) :-
+  number(X?) |
+  '_ln'(X?, Result).
+Result? := ln(X) :-
+  otherwise |
+  X1 := X?,
+  Result := ln(X1?).
+
+% Base-10 logarithm.  A non-positive argument is '_log10''s to abort on.
+Result? := log(X) :-
+  number(X?) |
+  '_log10'(X?, Result).
+Result? := log(X) :-
+  otherwise |
+  X1 := X?,
+  Result := log(X1?).
+
+% Power
+Result? := pow(X, Y) :-
+  number(X?), number(Y?) |
+  '_pow'(X?, Y?, Result).
+Result? := pow(X, Y) :-
+  otherwise |
+  X1 := X?,
+  Y1 := Y?,
+  Result := pow(X1?, Y1?).
+
+% Arc sine.  An argument outside [-1, 1] is '_asin''s to abort on.
+Result? := asin(X) :-
+  number(X?) |
+  '_asin'(X?, Result).
+Result? := asin(X) :-
+  otherwise |
+  X1 := X?,
+  Result := asin(X1?).
+
+% Arc cosine.  An argument outside [-1, 1] is '_acos''s to abort on.
+Result? := acos(X) :-
+  number(X?) |
+  '_acos'(X?, Result).
+Result? := acos(X) :-
+  otherwise |
+  X1 := X?,
+  Result := acos(X1?).
+
+% Arc tangent
+Result? := atan(X) :-
+  number(X?) |
+  '_atan'(X?, Result).
+Result? := atan(X) :-
+  otherwise |
+  X1 := X?,
+  Result := atan(X1?).
+
+% Convert to integer
+Result? := integer(X) :-
+  number(X?) |
+  '_integer'(X?, Result).
+Result? := integer(X) :-
+  otherwise |
+  X1 := X?,
+  Result := integer(X1?).
+
+% Convert to real
+Result? := real(X) :-
+  number(X?) |
+  '_real'(X?, Result).
+Result? := real(X) :-
+  otherwise |
+  X1 := X?,
+  Result := real(X1?).
+
+% Round
+Result? := round(X) :-
+  number(X?) |
+  '_round'(X?, Result).
+Result? := round(X) :-
+  otherwise |
+  X1 := X?,
+  Result := round(X1?).
+
+% Floor
+Result? := floor(X) :-
+  number(X?) |
+  '_floor'(X?, Result).
+Result? := floor(X) :-
+  otherwise |
+  X1 := X?,
+  Result := floor(X1?).
+
+% Ceiling
+Result? := ceil(X) :-
+  number(X?) |
+  '_ceil'(X?, Result).
+Result? := ceil(X) :-
+  otherwise |
+  X1 := X?,
+  Result := ceil(X1?).
+
+% =============================================================================
+% TIME (now/1)
+% =============================================================================
+
+procedure now(Integer).
+now(T?) :- '_now'(T).
+
+% =============================================================================
+% SEEDED RANDOM (random/4)
+% =============================================================================
+% random(Seed, N, Value, NextSeed): Value is a pseudo-random integer
+% 1 =< Value =< N; NextSeed is the next draw's seed.  Threading NextSeed from
+% each draw into the next reproduces exactly from an initial seed.  A body goal,
+% not a guard (GLP-ICLP appendix-guards §"Seeded random numbers").
+procedure random(Integer?, Integer?, Integer, Integer).
+random(Seed, N, Value?, NextSeed?) :-
+  integer(Seed?), integer(N?), N? >= 1 |
+  '_random'(Seed?, N?, Value, NextSeed).
+
+% =============================================================================
+% SPLITTING A SEED (split_random_seed/3)
+% =============================================================================
+% split_random_seed(Seed, S1, S2): S1 and S2 are two seeds determined by Seed,
+% such that the draws from Seed, from S1 and from S2 are independent streams; a
+% splittable generator implements it.  A body goal, not a guard (GLP-ICLP
+% appendix-guards §"Splitting a seed").
+procedure split_random_seed(Integer?, Integer, Integer).
+split_random_seed(Seed, S1?, S2?) :-
+  integer(Seed?) |
+  '_split_random_seed'(Seed?, S1, S2).
+
+% =============================================================================
+% UNIV (=../2, ..=/2)
+% =============================================================================
+
+% Composition: list → tuple.  The list is a reader (=..(_, Stream(_)?)), and
+% '_list_to_tuple' does not wait: it aborts on a list whose spine is not yet
+% assigned down to [] and on a functor not yet assigned (GLP-Spec
+% appendix-guards, "Body kernel predicates").  So =.. waits on the functor
+% with known/1, and '_univ_compose' walks the spine, copying it into a list of
+% its own, and calls the kernel on the copy when the walk reaches [].  The
+% helper is defined by clauses and is no kernel; its name is admitted only to
+% a system module (appendix-guards, "Naming and admission of body kernels"),
+% so no application module calls it or defines one of the same name.  The
+% empty list composes no term, and '_list_to_tuple' aborts on it.
+X? =.. [Y|Ys] :- known(Y?) | '_univ_compose'(Ys?, [Y?|Zs?], Zs, X).
+X? =.. [] :- '_list_to_tuple'([], X).
+
+procedure '_univ_compose'(Stream(_)?, Stream(_)?, Stream(_), _).
+'_univ_compose'([Y|Ys], L, [Y?|Zs?], X?) :- '_univ_compose'(Ys?, L?, Zs, X).
+'_univ_compose'([], L, [], X?) :- '_list_to_tuple'(L?, X).
+
+% Decomposition: compound → list
+Y? ..= X :- compound(X?) | '_tuple_to_list'(X?, Y).
+
+% =============================================================================
+% MODULE AS A VALUE (self_module/1, run/2, run/3, find_type/2, find_type/3,
+% opaque_type/3, load_file/2)
+% =============================================================================
+% Wrappers over the '_self_module', '_run' and '_find_type' kernels (GLP-Spec
+% appendix-guards, "Module as a value" and "Dynamic activation").  run(Goal,
+% Module) activates the module value Module and posts Goal to it; Goal's
+% predicate must be exported by Module, else an error.  run(Goal, Type, Module)
+% activates Module and posts Goal to it where Type equals the type identity that
+% Module's exports record for Goal's predicate, and errs otherwise.
+% find_type(P/N, Type) assigns Type the type identity of the declaration of P/N
+% in the caller's scope, and errs where P/N is not declared there.  Type
+% identity is TGLP's (§Dynamic Activation); the declarations are the catalogue's
+% system-predicate rows.  Each wrapper waits for its inputs: a kernel does not
+% suspend, so an unbound module value or identity would be an abort rather than
+% a wait.
+
+procedure self_module(Module).
+self_module(M?) :- '_self_module'(M).
+
+%% decompose_module/4 - take a module value apart: the public key of the
+%% compiler that produced it, the identity of the source it was compiled from,
+%% and the identity of the compiled module itself (GLP-Spec appendix-guards,
+%% "Module as a value"; Secure GLP §The Seam, Modules).  Read from the
+%% artefact's certificate; not verified, since a module value exists only where
+%% the runtime compiled it or the loader admitted it.
+procedure decompose_module(Module?, Key, Hash, Hash).
+decompose_module(M, K?, S?, C?) :- known(M?) | '_decompose_module'(M?, K, S, C).
+
+procedure run(_?, Module?).
+run(G, M) :- known(M?) | '_run'(G?, M?).
+
+procedure run(_?, Constant?, Module?).
+run(G, T, M) :- known(T?), known(M?) | '_run'(G?, T?, M?).
+
+procedure find_type(_?, Constant).
+find_type(P, T?) :- ground(P?) | '_find_type'(P?, T).
+
+%% find_type(P/N, Hs, Type) assigns Type the type identity of the opaque
+%% instance at Hs of the caller's parameterised declaration of P/N, Hs a list
+%% of type identities, one per type parameter of the declaration in
+%% declaration order, and errs where P/N is not declared there or the length
+%% of Hs is not the number of its type parameters.  opaque_type(P/N, Module,
+%% Hs) assigns Hs the list of the type identities of the types at which
+%% Module's exports record its entry P/N as the instance of a parameterised
+%% declaration, in the order of its parameters, and errs where they record
+%% none.  A host activates a guest it was not compiled with by
+%% opaque_type(P/N, M, Hs), find_type(P/N, Hs, Type) and run(Goal, Type, M),
+%% holding no declaration of the guest's own types (GLP-Spec appendix-guards,
+%% "Dynamic activation"; the opaque instance is TGLP's, modules.tex, Dynamic
+%% Activation).
+procedure find_type(_?, List(Constant)?, Constant).
+find_type(P, Hs, T?) :- ground(P?), ground(Hs?) | '_find_type'(P?, Hs?, T).
+
+procedure opaque_type(_?, Module?, List(Constant)).
+opaque_type(P, M, Hs?) :- ground(P?), known(M?) | '_opaque_type'(P?, M?, Hs).
+
+%% load_file/2 - read the file Name names and assign Content the module that
+%% file holds where it is a certified compiled program, and its text otherwise
+%% (GLP-Spec appendix-guards, "Compilation and file reading").  Name is
+%% resolved within the calling module's own directory, which compilation
+%% assigns it; the caller can neither escape it nor choose otherwise, and there
+%% is no absolute form.  A file whose certificate does not check is text and
+%% not a Module, which is what decompose_module/4 rests on.
+procedure load_file(String?, Content).
+load_file(N, C?) :- ground(N?) | '_load_file'(N?, C).
+
+% =============================================================================
+% IDENTITY, SIGNATURE AND HELD LINKS (self_key/1, sign/3, signature/2,
+% authorise_link/2)
+% =============================================================================
+% The wrappers of GLP-Spec appendix-guards, "Identity and signature", over the
+% Signature kernel rows; the seam they join GLP to is the person's keys, whose
+% specification is Secure GLP's (core.tex §The Seam).  Written by IGLP Code from
+% the catalogue rows (Udi, 2026-09-08), GLP-Spec having no Code session, and
+% reported to GLP-Spec for retrospective approval.  The person's key is the
+% runtime's, held from construction, so none of these needs madGLP mode; the
+% earlier sign/2 over a 2-argument '_sign', which did, is gone with its kernel.
+
+%% self_key/1 - assign Key the public key of the person operating the agent.
+procedure self_key(Key).
+self_key(K?) :- '_self_key'(K).
+
+%% sign/3 - sign(Term, Key, Signed) requires Term ground and Key a key of that
+%% person, and assigns Signed the signature under Key of the pair of Term and
+%% the identity of the module making the call, which the runtime supplies and
+%% the caller cannot choose.  ground/1 suspends until Term is ground.
+procedure sign(_?, Key?, SignedTerm).
+sign(T, K, S?) :- ground(T?), known(K?) | '_sign'(T?, K?, S).
+
+%% signature/2 - signature(Signed, Signature) takes a signed term apart and
+%% reports what it finds: signed(Key, Hash, Term) where Signed is a signed term
+%% whose signature verifies, giving the signer's key, the identity of the module
+%% under which the signature was made, and the term signed; unsigned otherwise.
+%% It holds on a forgery, so a caller can refuse one and carry on.  Replaces
+%% signed/4 and signed/2 (GLP-Spec appendix-guards, GLP-ICLP-2026 6d38a0f).
+procedure signature(_?, Signature).
+signature(S, R?) :- known(S?) | '_signature'(S?, R).
+
+%% authorise_link/2 - answer a pending_link(Link, Sender) report (Definition
+%% authorise_link Predicate).  L is the reported link's global name in its
+%% ground presentation, A is authorise or refuse.  On authorise the runtime
+%% releases what it held; on refuse it drops the link.  The declaration is the
+%% catalogue's seam row.
+procedure authorise_link(GlobalName?, Answer?).
+authorise_link(L, A) :- known(A?) | '_authorise_link'(L?, A?).
+
+% =============================================================================
+% NETWORKING SEAM (peer_address/2, punch_udp/1, declare/1, remove/1)
+% =============================================================================
+% GLP-Spec's appendix-guards lists the four among the seam predicates, on the same grounds as sign/3 and authorise_link/2 above, and their declarations are its signature column verbatim (1ce0263): peer_address(Key?, PeerAddress), punch_udp(String?), declare(Declaration?) and remove(Removal?), with the types Declaration, Removal, Underlay, TrustLevel and PlaceEvent above.  The clauses are IGLP's madglp-spec.tex, Definition "Seam Predicates" (3b736bb), and their kernels '_peer_address', '_punch_udp', '_declare' and '_remove' are declared in the block above; the layer behind them is GLP-Networking-API's.  declare/1 and remove/1 replace place_declare/3, place_remove/1, trust_declare/2, peer_declare/1 and address_declare/2, gone on 2026-11-03.
+
+%% peer_address/2 - assign A address(S), S the address at which the layer
+%% observes peer P, or none where it observes no address for P.
+procedure peer_address(Key?, PeerAddress).
+peer_address(P, A?) :- ground(P?) | '_peer_address'(P?, A).
+
+%% punch_udp/1 - open a path to address A; assigns nothing.
+procedure punch_udp(String?).
+punch_udp(A) :- ground(A?) | '_punch_udp'(A?).
+
+%% declare/1 - make the declaration D to the networking layer or the platform: peer(P) gives the layer the public key P of a peer the program knows; address(P, A) the address A at which peer P is reached; rendezvous(P, A) a rendezvous server, the agent of key P at address A, or replaces its address; trust(U, L) sets the cold-call trust level of proximity underlay U to L, both underlays standing at closed until declared; place(P, R, E) declares a place P of radius R about the declaring agent's location at the time of the call, and assigns E the stream of that agent's own entered and exited events for P, carrying unobservable where the layer stops reporting crossings and observable where it resumes, a further declaration of the same place superseding the earlier one and closing its stream (GLP-Spec appendix-guards, "Networking seam").
+procedure declare(Declaration?).
+declare(place(P, R, E?)) :-
+    ground(P?), ground(R?) | '_declare'(place(P?, R?, E)).
+declare(D) :- ground(D?) | '_declare'(D?).
+
+%% remove/1 - end the declaration R: peer(P) takes P, and any address recorded for it, off the layer's known peers; rendezvous(P) takes the server off and ends the layer's session with it, a key not declared doing nothing; place(P) ends the declaration of P, closing its stream, and does nothing where P is not declared.
+procedure remove(Removal?).
+remove(R) :- ground(R?) | '_remove'(R?).
+
+% =============================================================================
+% MULTIWAY MERGE (mwm/2)
+% =============================================================================
+procedure(X) mwm(MwmInput(X)?, Stream(X)).
+mwm(In, Out?) :-
+    '_allocate_mutual_reference'(Ref, Out),
+    mwm_main(In?, Ref?).
+
+% mwm_main: Ref? occurs more than once below, licensed by its type MutualRef? (TGLP, "A reader of type MutualRef may also occur more than once").
+procedure(X) mwm_main(MwmInput(X)?, MutualRef?).
+mwm_main(In, Ref) :-
+    is_mutual_ref(Ref?) |
+    mwm1(In?, Ref?, done, Done),
+    close_when_done(Done?, Ref?).
+
+procedure(X) mwm1(MwmInput(X)?, MutualRef?, Done?, Done).
+mwm1([merge(Xs)|Streams], Ref, L, R?) :-
+    is_mutual_ref(Ref?) |
+    mwm_copy(Xs?, Ref?, L?, M),
+    mwm1(Streams?, Ref?, M?, R).
+mwm1([], _, L, L?).
+
+procedure(X) mwm_copy(Stream(X)?, MutualRef?, Done?, Done).
+mwm_copy([X|Xs], Ref, L, R?) :-
+    is_mutual_ref(Ref?) |
+    stream_append(X?, Ref?, Ref1),
+    mwm_copy(Xs?, Ref1?, L?, R).
+mwm_copy([], _, L, L?).
+
+procedure close_when_done(Done?, MutualRef?).
+close_when_done(done, Ref) :-
+    is_mutual_ref(Ref?) |
+    close_mutual_reference(Ref?).
+
+% The mutual-reference wrappers let a typed application module call the kernels
+% without a local declaration.  A mutual reference is a value of the primitive type
+% MutualRef, which no program writes as a literal: the runtime produces it.
+procedure(X) stream_append(X?, MutualRef?, MutualRef).
+stream_append(Value, RefIn, RefOut?) :-
+    is_mutual_ref(RefIn?) |
+    '_stream_append'(RefIn?, Value?, RefOut).
+
+procedure close_mutual_reference(MutualRef?).
+close_mutual_reference(Ref) :-
+    is_mutual_ref(Ref?) |
+    '_close_mutual_reference'(Ref?).
+
+% allocate_mutual_reference/2 — system wrapper for the allocation kernel, so
+% application modules can build a mutual reference without naming the reserved
+% '_allocate_mutual_reference' kernel.
+procedure(X) allocate_mutual_reference(MutualRef, Stream(X)).
+allocate_mutual_reference(Ref?, Out?) :- '_allocate_mutual_reference'(Ref, Out).

@@ -1,0 +1,388 @@
+%% core/self.glp --- the social graph as the super-app, as a program of its own.
+%%
+%% The directory holds the agent (agent.glp) and the super-app plays
+%% (superapp_plays.glp); the types are the parent's (../self.glp, an ancestor
+%% scope).  The certified mini-apps it hosts are programs of their own
+%% (../pingapp, ../endapp; programs/currencies/coins/currency, ...), whose
+%% artefacts the REPL's :artefact writes here, the one place the agent's
+%% load_file/2 resolves a name.  The super-app holds no declaration of a
+%% mini-app's types: each mini-app's entry is the instance of the entry
+%% template miniapp/4, declared once in the root programs/self.glp, at the
+%% mini-app's own type, and the super-app activates it by the template's
+%% opaque instance at that type (GSG paper, Sections 3 and 4).  Loaded as part
+%% of ../ (the UI boot plays), the agent is called as core # agent, through
+%% the forwarder below; under :boot (../../superapp_boot.glp) sg_init/4 runs
+%% one super-app per isolate.  No clause here names a peer by an atom: an
+%% agent is its public key, and a readable name such as alice is a variable
+%% standing for a key (IGLP, Remark "Agent Names"); an agent learns its peers'
+%% keys from its person (IGLP, Implementation Notes, "Boot"), and a play or a
+%% boot is given them by the goal that starts it.
+
+%% The questions of the super-app's own person interface (home.vglp), as its
+%% compilation home.glp carries them (vGLP, Definition "Canonical
+%% Compilation"): the union of home's questions, of which the asks on its ask
+%% stream are made, written here again under core's own names, since
+%% ../self.glp's Question and Request are the currency's.  Types are not
+%% exported: a caller declares what it passes in its own scope, and the
+%% imported declarations below carry exactly the types of home.glp's exports,
+%% structurally (TGLP, "Cross-module type checking").  HomeDrawn is home.glp's
+%% Drawn, the type its person channel carries.  Ask(Q) is ../self.glp's, as
+%% home.glp's own, and the person channel's types the root's.
+HomeRequest       ::= trust(Key) ; install(String, String) ; invite(String, Key) ; connect(Key).
+HomeFriendRequest ::= from(Key, Decision?).
+HomeIntroRequest  ::= from(Key, Key, Decision?).
+HomeQuestion      ::= friendRequest_w(HomeFriendRequest) ; introRequest_w(HomeIntroRequest) ; stream_request_r(Stream(HomeRequest)?).
+HomeDrawn         ::= friendRequest_w(_) ; introRequest_w(_) ; stream_request_r(_) ; output(List(Output)) ; Decision ; HomeRequest.
+
+%% The super-app (GSG paper, Section 5.1): the one goal the runtime posts,
+%% with the person's public key, the stream of the person's acts and the
+%% stream from the network, and nothing else.  It runs agent/4, with the
+%% super-app's own person interface (home/3) and its dispatcher between the
+%% person and the agent, and sends the two streams of the outputs list to the
+%% person and to the network.  The person's acts are the grants of the person
+%% channel (vGLP, Definition "Person Channel, Person Writer, GLP with Persons,
+%% Grant"), ch(Grants?, Draws), which the dispatcher reads: home's asks go to
+%% it, and it draws the constructs of home's questions.  What the agent tells
+%% the person goes to her on the dispatcher's channel to the program, which
+%% merges it with the draws, as miniapp.glp of programs/currencies/coins/
+%% currency does with its screen; home reads the same stream, each message
+%% whole, for a friend's request to connect and an introduction.  The draws leave by send_to_user/1, and the network
+%% stream by send_to_net/1.
+imported procedure home#home(Key?, AgentToUserStream?, Stream(UserInMsg), Stream(Ask(HomeQuestion))).
+imported procedure home#dispatch(Stream(Ask(HomeQuestion))?, PersonChannel(HomeDrawn)?, Channel(Stream(Input(HomeDrawn)), Stream(Output))).
+imported procedure agent#agent(Key?, UserInStream?, NetInStream?, OutputsList?).
+exported procedure superapp(Key?, PersonIn(HomeDrawn)?, NetInStream?).
+superapp(Id, Grants, NetIn) :-
+    ground(Id?) |
+    agent # agent(Id?, In?, NetIn?, [user_output(Outs), net_output(NetOut)]),
+    calendar(Dates),
+    date_msgs(Id?, Dates?, DateMsgs),
+    merge(Cmds?, DateMsgs?, In),
+    send_to_net(NetOut?),
+    split_out(Outs?, Shown, Seen),
+    home # home(Id?, Seen?, Cmds, Asks),
+    home # dispatch(Asks?, ch(Grants?, Draws), MCh),
+    show_notices(MCh?, Shown?),
+    send_to_user(Draws?).
+
+%% What the agent tells the person, split: each message whole to the person
+%% interface, and its notice to the person.  A message is never copied whole:
+%% the pending value of a befriending or an introduction holds the agent's
+%% consent writer, which home's card answers, and which one reader alone may
+%% hold; until it is answered the message is not ground, so a copy of it
+%% would wait for the very answer it carries the card for.  superapp/3 above
+%% and superapp_ui/4 (home_ui.glp) reach it by scope.
+procedure split_out(AgentToUserStream?, Stream(Output), AgentToUserStream).
+split_out([M | Ms], [N? | Ns?], [M1? | Seen?]) :- notice(M?, N, M1), split_out(Ms?, Ns, Seen).
+split_out([], [], []).
+
+%% A scripted person on the super-app's person interface (home.vglp), for
+%% the plays (superapp_plays.glp, home_ui.glp, ../play_ui_boot.glp): what the
+%% agent tells the person is split by split_out/3, each message whole to home,
+%% which raises the card of a friend's request to connect and of an
+%% introduction, and its notice to the person's script; the script's commands
+%% and home's reach the agent merged; and the person, scripted on what the
+%% dispatcher draws, answers yes on each card.  A notice informs; a consent is
+%% asked by home's card only, and no play answers off a notice (GSG,
+%% 2026-10-14 09:24 UTC, item 1, and 11:38 UTC).
+exported procedure scripted_home(Key?, AgentToUserStream?, Stream(Output), UserInStream?, UserInStream).
+scripted_home(Id, Out, Notices?, ScriptCmds, In?) :-
+    ground(Id?) |
+    split_out(Out?, Notices, Seen),
+    home # home(Id?, Seen?, Home, Asks),
+    home # dispatch(Asks?, ch(Grants?, Draws), MCh),
+    hold_output(MCh?),
+    yes_person(Draws?, Grants),
+    merge(ScriptCmds?, Home?, In).
+
+%% The program's output to the person: the notices go to the script instead.
+procedure hold_output(Channel(Stream(_), Stream(Output))?).
+hold_output(ch(_, [])).
+
+%% The person: yes on each card, a friend's request to connect or an
+%% introduction, at the path of its decision, once the card is drawn with it.
+%% The person channel never closes, so the person holds its grant writer for
+%% good.
+procedure yes_person(_?, PersonIn(HomeDrawn)).
+yes_person([draw(N, _, friendRequest_w(from(_, input(Q)))) | Ds], [input(N?, Q?, yes) | Gs?]) :-
+    ground(N?), ground(Q?) | yes_person(Ds?, Gs).
+yes_person([draw(N, _, introRequest_w(from(_, _, input(Q)))) | Ds], [input(N?, Q?, yes) | Gs?]) :-
+    ground(N?), ground(Q?) | yes_person(Ds?, Gs).
+yes_person([_ | Ds], Gs?) :- otherwise | yes_person(Ds?, Gs).
+
+%% play_home(Id?, Answer?, Notices?, Cmds, Log): home/4 on the agent's notices,
+%% with its dispatcher, and a person who answers each card, a friend's request
+%% to connect or an introduction, with Answer once it is drawn, logging the
+%% card it answered; the commands home writes to the agent come out on Cmds.
+%% The person grants only on a card drawn: the dispatcher takes the asks, the
+%% grants and the draws in turn (programs/vglp/dispatcher.glp, fair/5), and a
+%% grant for a construct not yet asked reaches none.
+exported procedure play_home(Key?, HomeDrawn?, AgentToUserStream?, Stream(UserInMsg), Stream(_)).
+play_home(Id, Ans, Notices, Cmds?, Log?) :-
+    ground(Id?) |
+    home # home(Id?, Notices?, Cmds, Asks),
+    home # dispatch(Asks?, ch(Grants?, Draws), _),
+    answering(Ans?, Draws?, Grants, Log).
+
+procedure answering(HomeDrawn?, _?, PersonIn(HomeDrawn), Stream(_)).
+answering(A, [draw(N, _, friendRequest_w(from(F, input(Q)))) | Ds], [input(N?, Q?, A?) | Gs?], [card(F?) | Log?]) :-
+    ground(A?), ground(N?), ground(F?), ground(Q?) | answering(A?, Ds?, Gs, Log).
+answering(A, [draw(N, _, introRequest_w(from(I, F, input(Q)))) | Ds], [input(N?, Q?, A?) | Gs?], [card(I?, F?) | Log?]) :-
+    ground(A?), ground(N?), ground(I?), ground(F?), ground(Q?) | answering(A?, Ds?, Gs, Log).
+answering(A, [_ | Ds], Gs?, Log?) :- otherwise | answering(A?, Ds?, Gs, Log).
+
+%% The super-app's output to its person, of the reserved type Output: "A
+%% vGLP program declares the type of its output to its person by defining
+%% the type Output, a reserved name; the dispatcher draws that output as a
+%% thread whose elements are drawn by the widget of Output" (vGLP 169b008,
+%% Definition "Canonical Compilation").  A notice informs: it is what the
+%% agent tells the person, AgentContent, with the pending value of a
+%% befriending dropped, its consent asked by home's own card,
+%% FriendRequest ::= from(Friend, Decision?), and nowhere else (GSG,
+%% 2026-10-13 20:16 UTC, Udi: yes); befriend_intro likewise, its consent
+%% asked by home's card IntroRequest ::= from(Introducer, Other, Decision?)
+%% (GSG, 2026-10-14 09:24 UTC, item 1).
+Notice ::= msg(Constant, Constant, NoticeContent).
+NoticeContent ::= befriend(Key)
+                ; befriend_intro(Key, Key)
+                ; connected(Constant)
+                ; rejected
+                ; rejected(Constant)
+                ; unfriended(Constant)
+                ; received(Key, Constant)
+                ; not_a_friend(Key).
+Output ::= Notice.
+
+%% The notices, onto the program's output to the person; the person's input
+%% other than grants is not read.  superapp_ui/4 reaches it by scope.
+procedure show_notices(Channel(Stream(_), Stream(Output))?, Stream(Output)?).
+show_notices(ch(_, Out?), Shown) :- relay(Shown?, Out).
+
+%% Each notice as it comes.
+procedure relay(Stream(Output)?, Stream(Output)).
+relay([N | Ns], [N? | Out?]) :- relay(Ns?, Out).
+relay([], []).
+
+%% The notice of a message the agent tells the person, and the message, whole,
+%% for the person interface: the pending value goes with the message alone.
+procedure notice(AgentToUserMsg?, Notice, AgentToUserMsg).
+notice(msg(A, P, befriend(K, V)), msg(A?, P?, befriend(K?)), msg(A?, P?, befriend(K?, V?))) :-
+    ground(A?), ground(P?), ground(K?) | true.
+notice(msg(A, P, befriend_intro(C, K, V)), msg(A?, P?, befriend_intro(C?, K?)), msg(A?, P?, befriend_intro(C?, K?, V?))) :-
+    ground(A?), ground(P?), ground(C?), ground(K?) | true.
+notice(msg(A, P, connected(C)), msg(A?, P?, connected(C?)), msg(A?, P?, connected(C?))) :-
+    ground(A?), ground(P?), ground(C?) | true.
+notice(msg(A, P, rejected), msg(A?, P?, rejected), msg(A?, P?, rejected)) :-
+    ground(A?), ground(P?) | true.
+notice(msg(A, P, rejected(C)), msg(A?, P?, rejected(C?)), msg(A?, P?, rejected(C?))) :-
+    ground(A?), ground(P?), ground(C?) | true.
+notice(msg(A, P, unfriended(C)), msg(A?, P?, unfriended(C?)), msg(A?, P?, unfriended(C?))) :-
+    ground(A?), ground(P?), ground(C?) | true.
+notice(msg(A, P, received(K, C)), msg(A?, P?, received(K?, C?)), msg(A?, P?, received(K?, C?))) :-
+    ground(A?), ground(P?), ground(K?), ground(C?) | true.
+notice(msg(A, P, not_a_friend(K)), msg(A?, P?, not_a_friend(K?)), msg(A?, P?, not_a_friend(K?))) :-
+    ground(A?), ground(P?), ground(K?) | true.
+
+%% The person's end of a mini-app's person channel that no screen shows ---
+%% a re-idled mini-app's fresh one (agent.glp, app_idle/3), or one a play
+%% installs a mini-app with and does not watch.  The person channel never
+%% ends in either direction (vGLP, Section 6.3; vGLP 2026-10-14 21:48 UTC):
+%% the draws are read for good, the grant writer passed on, no person
+%% granting on it, and the goal suspends when no draw comes.  agent.glp and
+%% superapp_plays.glp reach it by scope.
+procedure hold_person(Channel(PersonOut(Opaque), PersonIn(Opaque))?).
+hold_person(ch([_ | Ds], Gs?)) :- hold_person(ch(Ds?, Gs)).
+
+%% calendar(Dates): the dates of the device's clock, one a day: today's, the
+%% day since the Unix epoch the runtime's clock now/1 reads, at once, and each
+%% next one at the start of its day (GSG paper, Section 3, "What the super-app
+%% grants a mini-app": "a calendar, a stream of dates the super-app writes
+%% from the smartphone's clock, one a day"; GB appendix-derivation.tex: "on a
+%% device the clock writes it").  superapp/3 gives each to the agent, which
+%% writes it on the calendar of every mini-app installed; a play gives the
+%% agent its dates from its script instead.
+procedure calendar(Stream(Integer)).
+calendar(Cal?) :- now(T), D := T? // 86400000, dates(D?, Cal).
+
+procedure dates(Integer?, Stream(Integer)).
+dates(D, [D? | Cal?]) :- N := (D? + 1) * 86400000, next_date(N?, D?, Cal).
+
+procedure next_date(Integer?, Integer?, Stream(Integer)).
+next_date(N, D, Cal?) :- wait_until(N?) | D1 := D? + 1, dates(D1?, Cal).
+
+%% date_msgs(Id, Dates, Msgs): each date the person's act date(D) to the agent.
+procedure date_msgs(Key?, Stream(Integer)?, UserInStream).
+date_msgs(Id, [D | Ds], [msg(person, Id?, date(D?)) | Ms?]) :-
+    ground(Id?), integer(D?) | date_msgs(Id?, Ds?, Ms).
+date_msgs(_, [], []).
+
+%% The agent, exported for the parent's UI boot plays (../boot.glp,
+%% ../play_ui_boot.glp), which call it as core # agent: a call into this
+%% directory resolves only to what this file exports (TGLP, Section "Module
+%% System", External access).
+exported procedure agent(Key?, UserInStream?, NetInStream?, OutputsList?).
+agent(Id, UserIn, NetIn, Outs) :- agent # agent(Id?, UserIn?, NetIn?, Outs?).
+
+%% The term an attestation signs, attest(Id, Other) (agent.glp, the
+%% attestation of Section 5.5), as play_attest/6 takes it apart, or the
+%% constant unsigned where the attestation is not a signed term.
+Attestation ::= attest(Key, Key) ; unsigned.
+
+%% route_to(K, Net, Mine, Rest): the network messages Net of the agents of a
+%% play in one heap, those addressed to the agent K on Mine, its network
+%% input, and the rest on Rest, for the next agent's route_to/4; the network
+%% of a play is a chain of them, one for each agent, by its key.
+procedure route_to(Key?, NetOutStream?, NetInStream, NetOutStream).
+route_to(K, [msg(D, C) | Ms], [msg(D?, C?) | Mine?], Rest?) :-
+    D? =?= K? | route_to(K?, Ms?, Mine, Rest).
+route_to(K, [msg(D, C) | Ms], Mine?, [msg(D?, C?) | Rest?]) :-
+    otherwise | route_to(K?, Ms?, Mine, Rest).
+route_to(_, [], [], []).
+
+%% The super-app as a play, the person with a scripted peer for each key the
+%% person knows: what the Flutter agent runtime starts (home_ui.glp).
+imported procedure home_ui#superapp_ui(Key?, List(Key)?, PersonIn(HomeDrawn)?, NetInStream?).
+exported procedure superapp_ui(Key?, List(Key)?, PersonIn(HomeDrawn)?, NetInStream?).
+superapp_ui(Id, Peers, Grants, NetIn) :- home_ui # superapp_ui(Id?, Peers?, Grants?, NetIn?).
+
+%% The plays of superapp_plays.glp, each given the keys of its two agents,
+%% the first the inviter's or the caller's and the second the other's.
+imported procedure superapp_plays#play_invite(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_invite(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_invite(P, Q, A?, B?) :- superapp_plays # play_invite(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_invite_declined(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_invite_declined(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_invite_declined(P, Q, A?, B?) :- superapp_plays # play_invite_declined(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_attest(Key?, Key?, String, String, String, Attestation).
+exported procedure play_attest(Key?, Key?, String, String, String, Attestation).
+play_attest(P, Q, S?, K?, H?, T?) :- superapp_plays # play_attest(P?, Q?, S, K, H, T).
+
+imported procedure superapp_plays#play_both_ways(Key?, Key?, Stream(AgentContent), Stream(AgentContent)).
+exported procedure play_both_ways(Key?, Key?, Stream(AgentContent), Stream(AgentContent)).
+play_both_ways(P, Q, A?, B?) :- superapp_plays # play_both_ways(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_not_a_friend(Key?, Key?, Stream(AgentContent), Stream(AgentContent)).
+exported procedure play_not_a_friend(Key?, Key?, Stream(AgentContent), Stream(AgentContent)).
+play_not_a_friend(P, Q, A?, B?) :- superapp_plays # play_not_a_friend(P?, Q?, A, B).
+
+
+imported procedure superapp_plays#play_invite_timed(Key?, Key?, Integer).
+exported procedure play_invite_timed(Key?, Key?, Integer).
+play_invite_timed(P, Q, Ms?) :- superapp_plays # play_invite_timed(P?, Q?, Ms).
+
+imported procedure superapp_plays#sg_init(Key?, Constant?, List(Key)?, NetInStream?).
+exported procedure sg_init(Key?, Constant?, List(Key)?, NetInStream?).
+sg_init(Id, Role, Peers, NetIn) :- superapp_plays # sg_init(Id?, Role?, Peers?, NetIn?).
+
+imported procedure superapp_plays#play_load(String?, Constant, String).
+exported procedure play_load(String?, Constant, String).
+play_load(N, Kind?, K?) :- superapp_plays # play_load(N?, Kind, K).
+
+imported procedure superapp_plays#play_install(Key?, String?, Constant?, Stream(Constant)).
+exported procedure play_install(Key?, String?, Constant?, Stream(Constant)).
+play_install(P, N, App, I?) :- superapp_plays # play_install(P?, N?, App?, I).
+
+%% The super-app's refusal of a forgery at each of its four sites (Section 6.1).
+imported procedure superapp_plays#play_forged_cert(Key?, Stream(Constant)).
+exported procedure play_forged_cert(Key?, Stream(Constant)).
+play_forged_cert(P, I?) :- superapp_plays # play_forged_cert(P?, I).
+
+imported procedure superapp_plays#play_forged_invite(Key?, Key?, AgentToUserStream).
+exported procedure play_forged_invite(Key?, Key?, AgentToUserStream).
+play_forged_invite(P, Q, O?) :- superapp_plays # play_forged_invite(P?, Q?, O).
+
+imported procedure superapp_plays#play_forged_join(Key?, Key?, AgentToUserStream).
+exported procedure play_forged_join(Key?, Key?, AgentToUserStream).
+play_forged_join(P, Q, O?) :- superapp_plays # play_forged_join(P?, Q?, O).
+
+imported procedure superapp_plays#play_forged_root(Key?, Key?, AgentToUserStream).
+exported procedure play_forged_root(Key?, Key?, AgentToUserStream).
+play_forged_root(P, Q, O?) :- superapp_plays # play_forged_root(P?, Q?, O).
+
+imported procedure superapp_plays#play_coins(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_coins(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_coins(P, Q, A?, B?) :- superapp_plays # play_coins(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_cssn(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_cssn(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_cssn(P, Q, A?, B?) :- superapp_plays # play_cssn(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_both(Key?, Key?, Stream(Opaque), Stream(Opaque), Stream(Opaque), Stream(Opaque)).
+exported procedure play_both(Key?, Key?, Stream(Opaque), Stream(Opaque), Stream(Opaque), Stream(Opaque)).
+play_both(P, Q, A?, B?, C?, D?) :- superapp_plays # play_both(P?, Q?, A, B, C, D).
+
+imported procedure superapp_plays#play_reinvite(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_reinvite(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_reinvite(P, Q, A?, B?) :- superapp_plays # play_reinvite(P?, Q?, A, B).
+
+imported procedure superapp_plays#play_sovereign(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+exported procedure play_sovereign(Key?, Key?, Stream(Opaque), Stream(Opaque)).
+play_sovereign(P, Q, A?, B?) :- superapp_plays # play_sovereign(P?, Q?, A, B).
+
+%% =============================================================================
+%% THE AGENT'S INITIAL GOAL
+%% =============================================================================
+
+%% Every agent's initial goal is agent(ch(_?,_),ch(_?,_)), the person channel
+%% first and the network channel second (GLP-Spec maglp.tex, Definition
+%% "Multiagent GLP"), on a phone as in a simulation: "A boot defines no
+%% agent/2: the program it loads answers the initial goal, in a simulation as
+%% on a phone, and the person goal's first act names the entry the program
+%% starts" (IGLP 0e1c9e0, Implementation Notes, "Boot").  self_key/1 first
+%% makes the agent's key, before which nothing is sent on the network (GLP-Spec
+%% appendix-guards.tex, "Identity and signature").  The first act carries the
+%% entry's arguments: the person's key and the keys of the peers the person
+%% knows ("An agent learns the keys of its peers from its person"), and, for
+%% a boot's phone, the person's part in its script: superapp_ui/4 (the
+%% super-app with a live person), sg_init/4 (the boots of programs/social), and
+%% the smartphone of each app's boot (programs/apps).  The person's acts after
+%% the first are the grants of the super-app's person channel, which
+%% superapp_ui/4 reads; a boot's person closes the stream after the first act.
+CoreAct ::= superapp_ui(Key, List(Key))
+          ; sg_init(Key, Constant, List(Key))
+          ; gsg_phone(Constant, Key, List(Key))
+          ; gsn_phone(Constant, Key, List(Key))
+          ; gkk_phone(Constant, Key, List(Key))
+          ; gsnp_phone(Constant, Key, List(Key))
+          ; gai_phone(Constant, Key, List(Key))
+          ; gc_phone(Constant, Key, List(Key)).
+CoreIn  ::= [] ; [CoreAct | Grants].
+Grants  ::= [] ; [Input(HomeDrawn) | Grants].
+
+%% The smartphones of the apps' boots (programs/apps/<app>_boot.glp), each a
+%% module of this directory, <app>_phone.glp.
+imported procedure gsg_phone#gsg_phone(Constant?, Key?, List(Key)?, NetInStream?).
+imported procedure gsn_phone#gsn_phone(Constant?, Key?, List(Key)?, NetInStream?).
+imported procedure gkk_phone#gkk_phone(Constant?, Key?, List(Key)?, NetInStream?).
+imported procedure gsnp_phone#gsnp_phone(Constant?, Key?, List(Key)?, NetInStream?).
+imported procedure gai_phone#gai_phone(Constant?, Key?, List(Key)?, NetInStream?).
+imported procedure gc_phone#gc_phone(Constant?, Key?, List(Key)?, NetInStream?).
+
+exported procedure agent(Channel(CoreIn, Stream(Constant))?, Channel(NetInStream, NetOutStream)?).
+agent(ch(In, []), ch(N, [])) :- self_key(_), core_start(In?, N?).
+
+%% The entry the person's first act names, on the network input.
+procedure core_start(CoreIn?, NetInStream?).
+core_start([superapp_ui(P, Qs) | Gs], N) :-
+    person_grants(Gs?, Grants), superapp_ui(P?, Qs?, Grants?, N?).
+core_start([sg_init(P, M, Qs) | _], N) :- sg_init(P?, M?, Qs?, N?).
+core_start([gsg_phone(R, P, Qs) | _], N) :- gsg_phone # gsg_phone(R?, P?, Qs?, N?).
+core_start([gsn_phone(R, P, Qs) | _], N) :- gsn_phone # gsn_phone(R?, P?, Qs?, N?).
+core_start([gkk_phone(R, P, Qs) | _], N) :- gkk_phone # gkk_phone(R?, P?, Qs?, N?).
+core_start([gsnp_phone(R, P, Qs) | _], N) :- gsnp_phone # gsnp_phone(R?, P?, Qs?, N?).
+core_start([gai_phone(R, P, Qs) | _], N) :- gai_phone # gai_phone(R?, P?, Qs?, N?).
+core_start([gc_phone(R, P, Qs) | _], N) :- gc_phone # gc_phone(R?, P?, Qs?, N?).
+core_start([], _).
+
+%% The person's grants after the first act, onto the super-app's person
+%% channel, which never closes (vGLP, Section 6.3): where the person's stream
+%% closes, no grant comes again, and the channel's grants are held for good,
+%% on a fresh channel nothing writes, as hold_person/1 holds a person channel.
+procedure person_grants(Grants?, PersonIn(HomeDrawn)).
+person_grants([G | Gs], [G? | Ps?]) :- person_grants(Gs?, Ps).
+person_grants([], Ps?) :- new_channel(A, B), hold_grants(A?, B?, Ps).
+
+procedure hold_grants(Channel(PersonOut(HomeDrawn), PersonIn(HomeDrawn))?, Channel(PersonIn(HomeDrawn), PersonOut(HomeDrawn))?, PersonIn(HomeDrawn)).
+hold_grants(ch([_ | Ds], Gs?), B, Ps?) :- hold_grants(ch(Ds?, Gs), B?, Ps).

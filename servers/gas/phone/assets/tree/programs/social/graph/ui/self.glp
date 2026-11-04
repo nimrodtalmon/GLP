@@ -1,0 +1,16 @@
+%% ui/self.glp --- the module ui: the simulated UI of the social graph's plays,
+%% the UI mediator (mediator.glp).
+%%
+%% The parent's play (../play_ui_boot.glp) calls into this
+%% directory as ui # p.  A qualifier names a single child directory or module
+%% file of the caller's directory, and a directory is entered through its
+%% self.glp, a call into it resolving only to a procedure its self.glp exports
+%% (TGLP, Section "Module System"): so this file exports what the play calls,
+%% each by a forwarder to the module that defines it.  The types are the
+%% parent's (../self.glp, an ancestor scope).
+
+%% The UI mediator (mediator.glp).
+imported procedure mediator#ui_mediator(Key?, AgentChannel?, UserChannel?, PendingList?, Integer?).
+exported procedure ui_mediator(Key?, AgentChannel?, UserChannel?, PendingList?, Integer?).
+ui_mediator(Id, AgentCh, UserCh, Ps, N) :-
+    mediator # ui_mediator(Id?, AgentCh?, UserCh?, Ps?, N?).
