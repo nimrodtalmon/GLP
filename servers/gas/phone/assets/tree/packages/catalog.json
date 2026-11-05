@@ -9,7 +9,7 @@
    "icon": "🔑",
    "family": "identity",
    "about": "Who you are and who you know: a key of your own, meeting people, introducing them.",
-   "built": "3a447303"
+   "built": "1ff332e1"
   },
   {
    "id": "GC",
@@ -19,7 +19,7 @@
    "icon": "🪙",
    "family": "money",
    "about": "Personal currencies: everyone can issue their own coins.",
-   "built": "3a447303"
+   "built": "1ff332e1"
   },
   {
    "id": "AGORA",
@@ -29,7 +29,7 @@
    "icon": "🧺",
    "family": "money",
    "about": "Barter: make things, post them on a market wall, trade them.",
-   "built": "3a447303"
+   "built": "1ff332e1"
   }
  ]
 }
