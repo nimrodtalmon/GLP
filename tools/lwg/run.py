@@ -1,7 +1,11 @@
-"""Run the four modules on an example: python3 run.py examples/amutot [--check]"""
+"""Run the four modules: python3 run.py examples/amutot [--check], or on a bundle from the web page: python3 run.py --bundle my.json [--check]"""
 import os, sys
 from lwg import read, map_, review, build, record
-ex = sys.argv[1]; glp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ex = sys.argv[1]
+if ex == '--bundle':
+    from lwg import bundle
+    ex = bundle.unpack(sys.argv[2], os.path.join(os.path.dirname(os.path.abspath(__file__)), 'examples', '_bundle'))
+glp_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 import json
 meta = json.load(open(os.path.join(ex, 'meta.json'), encoding='utf8'))
 rows = read.run(os.path.join(ex, 'source.txt'), os.path.join(ex, 'kinds.json'), meta['format'])                # Read

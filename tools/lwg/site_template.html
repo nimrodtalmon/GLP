@@ -64,6 +64,15 @@ input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid
 .result ul{margin:6px 0 0;padding-left:18px}
 .note{color:var(--muted);font-size:13px}
 a{color:var(--accent)}
+textarea{font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;width:100%;resize:vertical}
+.btn{border:1px solid var(--accent);background:var(--accent);color:var(--bg);padding:7px 12px;border-radius:6px;font-weight:500}
+.btn.quiet{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:default}
+ol.own{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:14px}
+ol.own li>p{margin-bottom:6px}
+.err{color:var(--bad);font-size:14px;white-space:pre-wrap}
+code{font-family:var(--mono);font-size:13px}
+[hidden]{display:none!important}
 @media (max-width:640px){ .two{grid-template-columns:1fr} .steps{grid-template-columns:repeat(2,1fr)} .try{grid-template-columns:repeat(2,minmax(0,1fr))} .list{height:240px} .detail{height:auto;max-height:320px} }
 </style>
 </head>
@@ -71,18 +80,39 @@ a{color:var(--accent)}
 <main>
   <header>
     <h1>From a governing document to a GrassApp</h1>
-    <p class="lead">LWG reads the rules an organization already has and turns them into a grassroots contract, keeping a record of what became of every provision. Prototype: two documents, each carried through four modules.</p>
+    <p class="lead">LWG reads the rules an organization already has and turns them into a grassroots contract, keeping a record of what became of every provision. Prototype: three documents carried through four modules, and a way to bring your own.</p>
   </header>
 
   <div class="row" id="picks" role="group" aria-label="Document"></div>
 
-  <section class="panel">
+  <section class="panel" id="own-setup" hidden>
+    <h2>Your document</h2>
+    <ol class="own">
+      <li><p>Paste the governing document.</p>
+        <textarea id="o-doc" rows="7" aria-label="The document" placeholder="Bylaws, a constitution, a DAO's rules ..."></textarea></li>
+      <li><p>Take the prompt to Claude (or another model) and send it as a message. It contains your document and the instructions.</p>
+        <div class="row"><button class="btn" id="o-copy">Copy prompt</button><button class="btn quiet" id="o-save">Download prompt</button><span class="note" id="o-copied" aria-live="polite"></span></div></li>
+      <li><p>Paste the reply here.</p>
+        <textarea id="o-reply" rows="5" aria-label="The model's reply" placeholder="{ ... }"></textarea>
+        <div class="row" style="margin-top:8px"><button class="btn" id="o-show">Show the record</button></div>
+        <p class="err" id="o-err" aria-live="polite"></p></li>
+    </ol>
+    <p class="note" style="margin-top:12px">Nothing leaves this page: the document and the reply stay in your browser.</p>
+  </section>
+
+  <section class="panel" id="own-bar" hidden>
+    <h2>Your document: next</h2>
+    <p>Answer the questions in the record below; your answers are kept with it. Then download the bundle. The last module, Build, runs on a computer with the GLP repository: <code>python3 run.py --bundle bundle.json --check</code></p>
+    <div class="row" style="margin-top:10px"><button class="btn" id="o-bundle">Download bundle</button><button class="btn quiet" id="o-reset">Start over</button></div>
+  </section>
+
+  <section class="panel view">
     <h2 id="doc-title">Document</h2>
     <p id="doc-meta" class="note"></p>
     <div class="steps" style="margin-top:12px" id="steps"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel view">
     <h2>Record: one row for each provision</h2>
     <div class="two">
       <div class="list" id="list"></div>
@@ -90,12 +120,12 @@ a{color:var(--accent)}
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel view">
     <h2>Bylaws: who decides, and by which rule</h2>
     <div class="scrollx"><table id="bylaws"></table></div>
   </section>
 
-  <section class="panel">
+  <section class="panel view">
     <h2>Try a decision</h2>
     <div class="try">
       <label for="t-act">Act<select id="t-act"></select></label>
@@ -107,16 +137,66 @@ a{color:var(--accent)}
     <div class="result" id="result" aria-live="polite"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel view">
     <h2>Contract</h2>
     <pre class="contract" id="contract"></pre>
     <p class="note" id="check" style="margin-top:8px"></p>
   </section>
 
-  <p class="note">■ enforced: the app does not allow a breach. ○ undertaken: a promise on record. The app itself is not built yet; the contract passes the check that every grassroots contract must pass.</p>
+  <p class="note">■ enforced: the app does not allow a breach. ○ undertaken: a promise on record. The app itself is not built yet; the three prepared contracts pass the check that every grassroots contract must pass.</p>
 </main>
 <script>
 const DATA = /*DATA*/;
+const PROMPT = /*PROMPT*/;
+const KINDS = ['position','boundary','choice','aggregation','information','payoff','scope','none','outside','judgment'];
+const STATUS = ['built','absorbed','not built','open','no clause'];
+const ACTS = {'*':'every other act', coop_join:'admit a member', dao_join:'admit a member', expel:'expel a member', appoint:'appoint to a role', dismiss:'dismiss from a role', coop_board:'elect a member to the board', amend:'amend the bylaws'};
+const BASE = {GCoop:'a cooperative', GDAO:'a DAO'};
+const FRAC = {'1/2':'half','2/3':'two thirds','3/4':'three quarters','1/4':'a quarter','1/3':'a third','1/10':'a tenth'};
+let own = null;
+try { own = JSON.parse(localStorage.getItem('lwg-own') || 'null'); } catch(e) {}
+const keep = () => { try { own ? localStorage.setItem('lwg-own', JSON.stringify(own)) : localStorage.removeItem('lwg-own'); } catch(e) {} };
+
+function english(r, roles){               // as rules.english of the tool
+  const who = roles[r.body] + 's', t = r.threshold, f = (a, b) => FRAC[a + '/' + b] || a + '/' + b;
+  let s = t[0] === 'count' ? (t[1] === 1 ? 'one ' + roles[r.body] + ' decides' : t[1] + ' of the ' + who + ' vote for')
+    : (t[2] ? 'more than ' : 'at least ') + f(t[0], t[1]) + ' of ' + (r.base === 'cast' ? 'the votes cast' : 'the ' + who) + ' are for';
+  if(r.quorum) s += ', and at least ' + f(r.quorum[0], r.quorum[1]) + ' of the ' + who + ' voted';
+  if(r.open_days) s += ', and the motion was moved at least ' + r.open_days + ' days before';
+  return s;
+}
+function check(b){                         // the checks of Read and Map; returns a list of faults
+  const e = [], need = (c, m) => { if(!c) e.push(m); };
+  need(BASE[b.base], 'base must be "GCoop" or "GDAO"');
+  need(b.roles && b.rules && b.acts && Array.isArray(b.provisions) && b.provisions.length, 'roles, rules, acts or provisions are missing');
+  if(e.length) return e;
+  for(const [k, r] of Object.entries(b.rules)){
+    const t = r.threshold || [];
+    need(b.roles[r.body], 'rule ' + k + ': no role ' + r.body);
+    need(r.base === 'all' || r.base === 'cast', 'rule ' + k + ': base must be "all" or "cast"');
+    need((t[0] === 'count' && t[1] >= 1) || (t[0] > 0 && t[0] <= t[1] && typeof t[2] === 'boolean'), 'rule ' + k + ': bad threshold');
+    need(!r.quorum || (r.quorum[0] > 0 && r.quorum[0] <= r.quorum[1]), 'rule ' + k + ': bad quorum');
+  }
+  need(b.acts['*'], 'no rule for "*" (every other act)');
+  for(const [a, r] of Object.entries(b.acts)){ need(ACTS[a], 'unknown act ' + a); need(b.rules[r], 'act ' + a + ': no rule ' + r); }
+  const seen = {};
+  b.provisions.forEach(p => { need(!seen[p.id], 'provision ' + p.id + ' appears twice'); seen[p.id] = 1; need(KINDS.includes(p.kind), 'provision ' + p.id + ': unknown kind ' + p.kind); need(STATUS.includes(p.status), 'provision ' + p.id + ': unknown status ' + p.status); need(p.text, 'provision ' + p.id + ': no text'); });
+  return e;
+}
+function fromBundle(b){                    // the view of a bundle, in the shape of a prepared example
+  const rules = {};
+  for(const [k, r] of Object.entries(b.rules)) rules[k] = Object.assign({}, r, {english: english(r, b.roles), body_name: b.roles[r.body]});
+  const acts = Object.entries(b.acts).sort((x, y) => (x[0] === '*') - (y[0] === '*')).map(([a, r]) => ({act: ACTS[a], rule: r}));
+  const def = 'Orga is ' + BASE[b.base] + '; ' + acts.map(a => 'the ' + rules[a.rule].body_name + 's decide ' + (a.act === ACTS['*'] ? 'every other act of the organization' : 'to ' + a.act) + ' when ' + rules[a.rule].english).join('; ') + '.';
+  const plain = r => { const t = r.threshold; return !r.open_days && ((t[0] === 'count' && t[1] === 1) || (r.base === 'all' && !r.quorum && ((t[0] === 1 && t[1] === 2 && t[2]) || (t[0] === 1 && t[1] === 1 && !t[2])))); };
+  const clauses = (b.undertakings || []).map(u => '○ ' + u).concat(Object.values(b.rules).every(plain) ? [] : ['■ Voting against.  A holder of a role may vote against a proposed act of Orga, once, in place of voting for it.']);
+  const contract = ['LWGX: ' + b.title, 'LWGX instantiates ' + b.base + ' and restricts it.', def, 'Alice and Bob are persons, Orga ' + BASE[b.base] + '.'].concat(clauses.map((c, i) => (i + 1) + '. ' + c));
+  const ans = b.answers || {};
+  return {own: true, label: 'Your document', title: b.title || 'Your document', source: b.source || 'your document', link: b.link || '', lang: b.language || 'en', base: b.base,
+    rows: b.provisions.map(p => Object.assign({}, p, {answer: ans[p.id] || ''})), rules, acts, contract, passed: null};
+}
+const view = () => cur === 'own' ? fromBundle(own) : DATA[cur];
+function download(name, text){ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let cur = 0, sel = 0;
@@ -144,7 +224,7 @@ function evaluate(rule, n, f, a, days){
 }
 
 function tryIt(){
-  const d = DATA[cur], act = d.acts[$('t-act').value] || d.acts[0], rule = d.rules[act.rule];
+  const d = view(), act = d.acts[$('t-act').value] || d.acts[0], rule = d.rules[act.rule];
   const n = Math.max(1, +$('t-n').value || 1), f = Math.max(0, +$('t-for').value || 0), a = Math.max(0, +$('t-against').value || 0), days = Math.max(0, +$('t-days').value || 0);
   $('t-n-label').textContent = rule.body_name.charAt(0).toUpperCase() + rule.body_name.slice(1) + 's';
   const r = $('result');
@@ -155,32 +235,53 @@ function tryIt(){
 }
 
 function showDetail(){
-  const d = DATA[cur], r = d.rows[sel];
+  const d = view(), r = d.rows[sel];
   $('detail').innerHTML = '<dl>'
     + '<div><dt>Provision ' + esc(r.id) + '</dt><dd class="src" dir="auto" lang="' + d.lang + '">' + esc(r.text) + '</dd></div>'
     + '<div><dt>Kind</dt><dd>' + esc(r.kind) + (r.note ? ' <span class="note">(' + esc(r.note) + ')</span>' : '') + '</dd></div>'
     + '<div><dt>Became</dt><dd>' + esc(r.mapped_to) + ' <span class="chip ' + cls(r.status) + '">' + esc(r.status) + '</span></dd></div>'
-    + (r.question ? '<div><dt>Question</dt><dd>' + esc(r.question) + '</dd></div><div><dt>Answer</dt><dd>' + (r.answer ? esc(r.answer) : '<span class="note">not answered; the default was used</span>') + '</dd></div>' : '')
+    + (r.question ? '<div><dt>Question</dt><dd>' + esc(r.question) + '</dd></div><div><dt>Answer</dt><dd>' + (d.own ? '<textarea id="ans" rows="2" aria-label="Your answer" placeholder="Your answer; empty keeps the default">' + esc(r.answer) + '</textarea>' : r.answer ? esc(r.answer) : '<span class="note">not answered; the default was used</span>') + '</dd></div>' : '')
     + '</dl>';
   document.querySelectorAll('.prov').forEach((b, i) => b.setAttribute('aria-current', i === sel ? 'true' : 'false'));
 }
 
 function render(){
-  const d = DATA[cur];
-  $('picks').innerHTML = DATA.map((x, i) => '<button class="pick" aria-pressed="' + (i === cur) + '" data-i="' + i + '">' + esc(x.label) + '</button>').join('');
+  $('picks').innerHTML = DATA.map((x, i) => '<button class="pick" aria-pressed="' + (i === cur) + '" data-i="' + i + '">' + esc(x.label) + '</button>').join('')
+    + '<button class="pick" aria-pressed="' + (cur === 'own') + '" data-i="own">Your document</button>';
+  const empty = cur === 'own' && !own;
+  $('own-setup').hidden = !empty; $('own-bar').hidden = !(cur === 'own' && own);
+  document.querySelectorAll('.view').forEach(x => x.hidden = empty);
+  if(empty) return;
+  const d = view();
   $('doc-title').textContent = d.title;
-  $('doc-meta').innerHTML = 'Source: <a href="' + esc(d.link) + '">' + esc(d.source) + '</a>. Built on the grassroots organization ' + esc(d.base) + '.';
+  $('doc-meta').innerHTML = 'Source: ' + (d.link ? '<a href="' + esc(d.link) + '">' + esc(d.source) + '</a>' : esc(d.source)) + '. Built on the grassroots organization ' + esc(d.base) + '.';
   const c = s => d.rows.filter(r => r.status === s).length, q = d.rows.filter(r => r.question).length, ans = d.rows.filter(r => r.answer).length;
-  $('steps').innerHTML = [['Read', d.rows.length + ' provisions'], ['Map', c('built') + ' built, ' + c('absorbed') + ' absorbed'], ['Review', q + ' questions, ' + ans + ' answered'], ['Build', d.passed ? 'check passed' : 'check failed']]
+  $('steps').innerHTML = [['Read', d.rows.length + ' provisions'], ['Map', c('built') + ' built, ' + c('absorbed') + ' absorbed'], ['Review', q + ' questions, ' + ans + ' answered'], ['Build', d.passed === null ? 'not run yet' : d.passed ? 'check passed' : 'check failed']]
     .map(s => '<div class="step"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>').join('');
   $('list').innerHTML = d.rows.map((r, i) => '<button class="prov" data-i="' + i + '"><span class="id">' + esc(r.id) + '</span><span class="kind">' + esc(r.kind) + '</span><span class="chip ' + cls(r.status) + '">' + esc(r.status) + '</span></button>').join('');
   $('bylaws').innerHTML = '<tr><th>Act</th><th>Decided by</th><th>Rule</th></tr>' + d.acts.map(a => '<tr><td>' + esc(a.act) + '</td><td>' + esc(d.rules[a.rule].body_name) + 's</td><td>' + esc(d.rules[a.rule].english) + '</td></tr>').join('');
   $('t-act').innerHTML = d.acts.map((a, i) => '<option value="' + i + '">' + esc(a.act) + '</option>').join('');
   $('contract').textContent = d.contract.join('\n');
-  $('check').textContent = d.passed ? 'Check of the cascade: passed (syntactically grassroots, with wards).' : 'Check of the cascade: not passed.';
+  $('check').textContent = d.passed === null ? 'The contract as Build will write it. The check has not run: download the bundle and run Build.' : d.passed ? 'Check of the cascade: passed (syntactically grassroots, with wards).' : 'Check of the cascade: not passed.';
   sel = 0; showDetail(); tryIt();
 }
-$('picks').addEventListener('click', e => { const b = e.target.closest('.pick'); if(b){ cur = +b.dataset.i; render(); } });
+$('picks').addEventListener('click', e => { const b = e.target.closest('.pick'); if(b){ cur = b.dataset.i === 'own' ? 'own' : +b.dataset.i; render(); } });
+$('detail').addEventListener('input', e => { if(e.target.id === 'ans' && own){ const id = view().rows[sel].id; own.answers = own.answers || {}; own.answers[id] = e.target.value; keep();
+  const n = Object.values(own.answers).filter(x => x).length, s = $('steps').children[2]; if(s) s.lastChild.textContent = view().rows.filter(r => r.question).length + ' questions, ' + n + ' answered'; } });
+const prompt = () => PROMPT + $('o-doc').value.trim() + '\n';
+const needDoc = () => { const ok = $('o-doc').value.trim().length > 0; $('o-copied').textContent = ok ? '' : 'Paste the document first.'; return ok; };
+$('o-copy').addEventListener('click', async () => { if(!needDoc()) return; let ok = true;
+  try { await navigator.clipboard.writeText(prompt()); } catch(e) { ok = false; }
+  $('o-copied').textContent = ok ? 'Copied.' : 'Copying is blocked here; use Download prompt.'; });
+$('o-save').addEventListener('click', () => { if(needDoc()) download('lwg-prompt.txt', prompt()); });
+$('o-show').addEventListener('click', () => {
+  const t = $('o-reply').value, i = t.indexOf('{'), j = t.lastIndexOf('}'); let b;
+  try { b = JSON.parse(t.slice(i, j + 1)); } catch(e) { $('o-err').textContent = 'The reply is not valid JSON. Paste the whole reply, from the first { to the last }.'; return; }
+  const faults = check(b);
+  if(faults.length){ $('o-err').textContent = 'The reply does not fit:\n' + faults.slice(0, 8).join('\n') + '\nAsk the model to correct these and paste again.'; return; }
+  $('o-err').textContent = ''; b.answers = b.answers || {}; own = b; keep(); render(); });
+$('o-bundle').addEventListener('click', () => download('bundle.json', JSON.stringify(own, null, 1)));
+$('o-reset').addEventListener('click', () => { own = null; keep(); $('o-reply').value = ''; render(); });
 $('list').addEventListener('click', e => { const b = e.target.closest('.prov'); if(b){ sel = +b.dataset.i; showDetail(); } });
 ['t-act','t-n','t-for','t-against','t-days'].forEach(id => $(id).addEventListener('input', tryIt));
 render();

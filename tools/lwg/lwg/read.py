@@ -41,7 +41,11 @@ def headed_articles(text):
     for r in rows: r['text'] = r['text'].strip()
     return rows
 
-FORMATS = {'wikisource_statute': wikisource_statute, 'headed_articles': headed_articles}
+def provisions(text):
+    """Provisions already split (a bundle from the web page): a JSON list of {id, text}."""
+    return [{'id': str(r['id']), 'text': r['text']} for r in json.loads(text)]
+
+FORMATS = {'provisions': provisions, 'wikisource_statute': wikisource_statute, 'headed_articles': headed_articles}
 
 def run(source_path, kinds_path, fmt='wikisource_statute'):
     rows = FORMATS[fmt](open(source_path, encoding='utf8').read())
