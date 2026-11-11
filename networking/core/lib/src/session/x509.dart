@@ -13,6 +13,7 @@
 /// verifiers are defeated.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:asn1lib/asn1lib.dart';
@@ -222,9 +223,25 @@ class X509Certificate {
   }
 
   static DateTime _time(ASN1Object o) {
-    if (o is ASN1UtcTime) return o.dateTimeValue.toUtc();
+    if (o is ASN1UtcTime) return _utcTime(o);
     if (o is ASN1GeneralizedTime) return o.dateTimeValue.toUtc();
     throw const X509Exception('validity carries an unrecognised time type');
+  }
+
+  /// A UTCTime's two-digit year read as RFC 5280 §4.1.2.5.1 has it: 50 to
+  /// 99 is 19YY, 00 to 49 is 20YY.  asn1lib's `dateTimeValue` pivots at 75
+  /// instead, which puts an Android attestation certificate's notBefore,
+  /// 1970-01-01, in 2070, so that its chain is refused as not yet valid.
+  static DateTime _utcTime(ASN1UtcTime o) {
+    final text = ascii.decode(o.valueBytes());
+    final yy = int.tryParse(text.length >= 2 ? text.substring(0, 2) : '');
+    if (yy == null) {
+      throw X509Exception('UTCTime $text does not parse');
+    }
+    final parsed = o.dateTimeValue.toUtc();
+    final year = (yy >= 50 ? 1900 : 2000) + yy;
+    return DateTime.utc(year, parsed.month, parsed.day, parsed.hour,
+        parsed.minute, parsed.second);
   }
 
   /// True where this certificate's basicConstraints marks it a certificate

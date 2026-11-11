@@ -196,6 +196,38 @@ void main() {
       );
     });
 
+    test('a UTCTime year of 50 to 99 is 19YY (RFC 5280), so an Android '
+        'attestation leaf valid from 1970 is valid now', () {
+      // Android's KeyMint gives the attestation certificate notBefore
+      // 1970-01-01, a UTCTime, 700101000000Z; asn1lib alone reads it 2070.
+      final rootKey = TestEcKey('x509 utc root');
+      final leafKey = TestEcKey('x509 utc leaf');
+      final leaf = X509Certificate.fromDer(certificate(
+        subject: 'Android Keystore Key',
+        subjectKey: leafKey,
+        issuer: 'Root',
+        issuerKey: rootKey,
+        serial: 2,
+        notBefore: DateTime.utc(1970, 1, 1),
+        notAfter: DateTime.utc(2048, 1, 1),
+      ));
+      expect(leaf.notBefore, DateTime.utc(1970, 1, 1));
+      expect(leaf.notAfter, DateTime.utc(2048, 1, 1));
+      expect(leaf.isValidAt(now), isTrue);
+      // The pivot itself: 50 is 1950 and 49 is 2049.
+      final edges = X509Certificate.fromDer(certificate(
+        subject: 'Edges',
+        subjectKey: leafKey,
+        issuer: 'Root',
+        issuerKey: rootKey,
+        serial: 3,
+        notBefore: DateTime.utc(1950, 1, 1),
+        notAfter: DateTime.utc(2049, 12, 31, 23, 59, 59),
+      ));
+      expect(edges.notBefore, DateTime.utc(1950, 1, 1));
+      expect(edges.notAfter, DateTime.utc(2049, 12, 31, 23, 59, 59));
+    });
+
     test('a certificate verifies an ECDSA signature by its own key only', () {
       final key = TestEcKey('x509 signer');
       final cert = X509Certificate.fromDer(rootCertificate('Signer', key));
