@@ -196,7 +196,9 @@ function fromBundle(b){                    // the view of a bundle, in the shape
     rows: b.provisions.map(p => Object.assign({}, p, {answer: ans[p.id] || ''})), rules, acts, contract, passed: null};
 }
 const view = () => cur === 'own' ? fromBundle(own) : DATA[cur];
-function download(name, text){ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+async function download(name, text){
+  try { const d = window.claude && await window.claude.use('downloads'); if(d){ await d.save({filename: name, data: text}); return; } } catch(e) { return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let cur = 0, sel = 0;
