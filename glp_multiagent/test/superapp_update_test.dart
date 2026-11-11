@@ -33,6 +33,7 @@ import 'package:glp_multiagent/ui_runtime/bridge.dart';
 import 'package:glp_multiagent/ui_runtime/term.dart';
 import 'package:glp_runtime/multiagent/agent_state_store.dart';
 import 'package:glp_runtime/multiagent/glp_network.dart';
+import 'package:glp_runtime/multiagent/identity.dart' show PersonIdentity;
 import 'package:glp_runtime/multiagent/simulation_network.dart'
     show generateKeyPair;
 
@@ -66,10 +67,14 @@ class _Alone extends GlpNetwork {
   @override
   List<Underlay> peerUnderlays(PubKey pk) => const [];
   @override
-  Uint8List sign(Uint8List message) => throw UnimplementedError();
+  // The layer holds the private key and signs: the runtime signs by it, for
+  // the certificate its compiler writes and sign/3 (the GLP paper f265fec,
+  // "Identity and signature").
+  Uint8List sign(Uint8List message) =>
+      PersonIdentity(keyPair.pub, keyPair.priv).sign(message);
   @override
   bool verify(PubKey signer, Uint8List message, Uint8List signature) =>
-      throw UnimplementedError();
+      PersonIdentity.verify(signer, message, signature);
   @override
   List<DiscoveredPeer> getPeers() => const [];
   @override
@@ -192,7 +197,6 @@ void main() {
           program: '$tree/social/graph/core',
           rootSelfGlpPath: '$tree/self.glp',
           network: _Alone(kp),
-          keyPair: kp,
           manifest: superappManifest,
           stateStore: FileAgentStateStore(path),
         ));
@@ -209,6 +213,9 @@ void main() {
     expect(first.errors, isEmpty);
     expect(File('$path.program').existsSync(), isTrue,
         reason: 'the store keeps the compiled program the agent runs');
+    // The app goes to the background, which saves the agent's state (IGLP
+    // d70ec2e, Implementation Notes, "Persistence"), and is terminated.
+    expect(await first.host.save(), isTrue);
     first.host.dispose();
 
     // A new version: dispatch/6, which ran at the start and is called by no
@@ -240,6 +247,9 @@ void main() {
         ['pan open', 'lan open', 'pan closed', 'lan closed']);
     final seen2 = second.screen();
     expect(second.errors, isEmpty);
+    expect(await second.host.save(), isTrue,
+        reason: 'the state restored under the new version is saved, and the '
+            'new version kept with it');
     second.host.dispose();
 
     // A version that calls home's serve_1/7 serve_2/7: the goal that serves

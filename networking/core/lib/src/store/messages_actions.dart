@@ -10,7 +10,9 @@ enum MessageStatus {
   /// Message is queued until the peer becomes reachable
   queued,
 
-  /// Message failed to send (red !)
+  /// Its tries ran out on every link the peer was reachable over (red !).
+  /// It stays in the layer's queue and is sent again automatically once the
+  /// peer has a session; a new attempt moves it on to `sending`.
   failed,
 
   /// Message sent from device (1 green ✓)
@@ -49,10 +51,12 @@ class MessageSendingAction extends MessageAction {
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
-/// A message failed to send
+/// A message's tries ran out on every link the peer was reachable over; it
+/// stays queued (GNA, Message Protocol: "the message queues for the next
+/// path").
 /// Status: failed (red !)
 class MessageFailedAction extends MessageAction {
-  /// Message ID that failed
+  /// Message ID whose tries ran out
   final String messageId;
   final DateTime timestamp;
 

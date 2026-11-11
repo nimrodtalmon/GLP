@@ -451,7 +451,7 @@ void main() {
       expect(newState.outgoingMessages['msg-1']!.status, MessageStatus.read);
     });
 
-    test('failed is terminal: no re-promotion on MessageSendingAction', () {
+    test('a failed message moves on to sending when it is tried again', () {
       final state = MessagesState(
         outgoingMessages: {'msg-1': deliveredAt(MessageStatus.failed)},
       );
@@ -465,6 +465,16 @@ void main() {
           timestamp: testTimestamp,
         ),
       );
+      expect(
+          newState.outgoingMessages['msg-1']!.status, MessageStatus.sending);
+    });
+
+    test('a failed message stays failed while it waits in the queue', () {
+      final state = MessagesState(
+        outgoingMessages: {'msg-1': deliveredAt(MessageStatus.failed)},
+      );
+      final newState =
+          messagesReducer(state, MessageQueuedAction(messageId: 'msg-1'));
       expect(newState.outgoingMessages['msg-1']!.status, MessageStatus.failed);
     });
   });

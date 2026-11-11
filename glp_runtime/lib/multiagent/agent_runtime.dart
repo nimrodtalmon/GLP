@@ -32,7 +32,7 @@
 /// 64 lowercase hex characters, as self_key/1 presents it.  Until 2026-10-12 the host built the
 /// simulation's network itself, always.
 ///
-/// Termination and restart (IGLP, Definition "Restart", madglp-spec.tex; Implementation Notes, "Persistence"): where the host is given an [AgentStateStore], the agent's local state survives the termination of its application, kept by the store, and "a message is handed to the layer, and a delivered message acknowledged to the layer, only from a state the store holds, and a restart resumes from the state the store holds".  The agent is event-driven (Implementation Notes, "Event-driven execution"): each event --- the initial start, a message the layer delivers, the person's act, a place event --- is one cycle, which applies the event, reduces to quiescence, saves the local state with the cycle's outgoing messages undelivered in M_p, and only then hands them to the layer; the cycles are taken one at a time, in order of arrival.  At restart the agent goes on from the state the store holds, with no entry goal posted, and hands to the layer the messages that state holds undelivered.  A cycle whose save fails leaves the agent running on its state in memory, reported once, and hands nothing to the layer from it until the next cycle that changes the state saves it ([_save]).  The layer is told that a message is delivered once a state that holds it applied is saved, by its `acknowledge(messageId)` ([GlpNetwork.acknowledge]).  Until 2026-10-23 the runtime saved nothing (Code #13 to GNA, 2026-10-20 23:56 UTC), and until 2026-10-24 a cycle handed its messages to the layer before its save.  The store keeps the compiled program the agent runs, and a restart may load a new version of it: the state is restored under the new version when every procedure called by a goal of the resolvent is defined in it with the same type identity, and otherwise the update is refused and the agent restarts under the version it terminated under (IGLP 61f3283, Termination and Restart; [StoredProgram]).  Until 2026-11-08 a state saved under other code than the program compiled to was refused, and the restart threw.
+/// Termination and restart (IGLP d70ec2e, Definition "Restart", madglp-spec.tex, Termination and Restart; Implementation Notes, "Persistence"): where the host is given an [AgentStateStore], the agent's local state survives a termination the platform announces, kept by the store, which the runtime writes "when the application goes to the background, which the platform announces before it may kill the application, and at no other time": the host calls [save] then --- the phone app at AppLifecycleState.paused, a headless host at its termination signal --- and the whole state the Persistence note lists is saved.  The agent is event-driven (Implementation Notes, "Event-driven execution"): each event --- the initial start, a message the layer delivers, the person's act, a place event --- is one cycle, which applies the event, reduces to quiescence, hands its Sends to the layer and acknowledges the message it applied, at once, with or without a store ("A message is handed to the layer, and a delivered message acknowledged to the layer, in the cycle that makes or applies it"); the cycles are taken one at a time, in order of arrival, and a save is taken between them.  At restart the agent goes on from the state the store holds, with no entry goal posted, and hands to the layer the messages that state holds undelivered.  A crash loses the cycles since the last save: "the agent restarts from the state last saved", and its recovery from its peers is SPM's, above madGLP (Termination and Restart).  Where a save fails, the store keeps the state saved before it, and the failure is reported on [onLog]; a saved state the runtime cannot read or cannot restore, one written under an earlier format of the store or under a program the store no longer keeps, is lost, reported, and the agent starts afresh from the program under the key pair the store keeps ([initialize]; IGLP db0a117, Implementation Notes, "Persistence", Failure).  Until 2026-11-10 the state was saved in every event cycle, before its Sends were handed over, and a state that could not be read threw (GLP #14, Code_inbox 2026-11-10 08:11 UTC, Udi approving: "the state is saved when the app goes to the background, and at no other time").  The store keeps the compiled program the agent runs, and a restart may load a new version of it: the state is restored under the new version when every procedure called by a goal of the resolvent is defined in it with the same type identity, and otherwise the update is refused and the agent restarts under the version it terminated under (IGLP 61f3283, Termination and Restart; [StoredProgram]).  Until 2026-11-08 a state saved under other code than the program compiled to was refused, and the restart threw.
 library;
 
 import 'dart:async';
@@ -60,7 +60,8 @@ import 'package:glp_runtime/analysis/type_checker/type_identity.dart'
 import 'package:glp_runtime/multiagent/mad_context.dart';
 import 'package:glp_runtime/multiagent/message_queue.dart' show OutboundMessage;
 import 'package:glp_runtime/multiagent/glp_network.dart';
-import 'package:glp_runtime/multiagent/identity.dart' show PersonIdentity;
+import 'package:glp_runtime/multiagent/identity.dart'
+    show LayerSigner, PersonIdentity;
 import 'package:glp_runtime/multiagent/simulation_network.dart';
 import 'package:glp_runtime/multiagent/boot_loader.dart' show PersonGoal;
 
@@ -76,7 +77,7 @@ import 'package:glp_runtime/multiagent/boot_loader.dart' show PersonGoal;
 /// 5. In the simulation, call onMadMessageReceived(from, payload) for network
 ///    messages; a given network delivers its own
 ///
-/// Given a [stateStore], the agent saves its local state in each event cycle before its outgoing messages are handed to the layer, and a host made again over the same store goes on from it.
+/// Given a [stateStore], the agent's local state is saved when the host calls [save], at its platform's announcement of termination, and a host made again over the same store goes on from it.
 class AgentRuntime {
   /// The host's handle on the agent: its name in the simulation, which names
   /// agents symbolically, and its tag in the log.  Over a given network the
@@ -133,15 +134,22 @@ class AgentRuntime {
   void Function(PubKey pk, ProximityUnderlay underlay)? onPeerDiscovered;
   void Function(PubKey pk, ProximityUnderlay underlay)? onPeerLost;
 
-  /// This agent's Ed25519 key pair.  Provided by the coordinator or the
-  /// application, or, where it is not, read from [stateStore], or made when
-  /// the host spawns the agent, before anything is compiled or sent, from the
-  /// SHA-256 of the clock, the device's hardware identifiers and the persona's
-  /// name, [agentId], combined by exclusive or, and saved in [stateStore]
-  /// (IGLP, Implementation Notes, "Boot").  Over a given network it must be
-  /// provided, the layer having been instantiated with it (IGLP, The
-  /// contract: "the runtime supplies the key pair to the layer when it
-  /// instantiates it, the layer keeping it unchanged for its lifetime").
+  /// This agent's Ed25519 key pair, for the simulation's layer the host builds
+  /// where it is given no network: provided by the coordinator, or, where it
+  /// is not, read from [stateStore], or made when the host spawns the agent,
+  /// before anything is compiled or sent, from the SHA-256 of the clock, the
+  /// device's hardware identifiers and the persona's name, [agentId], combined
+  /// by exclusive or, and saved in [stateStore] (IGLP 07a2b00, Implementation
+  /// Notes, "Boot").  It is handed to that layer at its instantiation, which
+  /// holds it and signs with it, and the runtime keeps no copy of the private
+  /// key beyond that (the GLP paper f265fec, "Identity and signature"; IGLP
+  /// 07a2b00, "The contract": "the runtime supplies the key pair to the layer
+  /// when it instantiates it, the layer keeping it unchanged for its
+  /// lifetime").  Over a given network the layer was instantiated with the
+  /// pair by the embedding application and holds it, the runtime takes its
+  /// public key from the layer, and none is given here; a pair given must be
+  /// the layer's.  Until 2026-11-10 a host over a given network handed the
+  /// pair, private half included.
   final ({PubKey pub, Uint8List priv})? keyPair;
 
   /// The shared identifier–key directory of the simulation. Provided by the
@@ -167,7 +175,7 @@ class AgentRuntime {
   /// cce13ce, appendix-guards, "Networking seam"; IGLP 59c40e2).
   final Application? installedApp;
 
-  /// The simulation's coordinator is told that the message of [messageId] is acknowledged: the simulation's layer, which the host builds where it is given none, hands its `acknowledge(messageId)` here ([SimulationNetworkClient.acknowledgeToRouter]).  The runtime acknowledges a message once the cycle that applied it is saved, or, where there is no [stateStore], once the cycle is complete (IGLP, Implementation Notes, "Persistence": "a delivered message acknowledged to the layer, only from a state the store holds"), by the layer's [GlpNetwork.acknowledge] (GNA, Section 2.9); over a given network the layer is told, and this is not called.  Until 2026-11-03 [GlpNetwork] had no `acknowledge`, and this was the runtime's one call, which a host was to bind to the layer's and none did.
+  /// The simulation's coordinator is told that the message of [messageId] is acknowledged: the simulation's layer, which the host builds where it is given none, hands its `acknowledge(messageId)` here ([SimulationNetworkClient.acknowledgeToRouter]).  The runtime acknowledges a message once the cycle that applied it is complete (IGLP d70ec2e, Implementation Notes, "Persistence": "a delivered message acknowledged to the layer, in the cycle that makes or applies it"), by the layer's [GlpNetwork.acknowledge] (GNA, Section 2.9); over a given network the layer is told, and this is not called.  Until 2026-11-03 [GlpNetwork] had no `acknowledge`, and this was the runtime's one call, which a host was to bind to the layer's and none did.
   void Function(String messageId)? onDelivered;
 
   // Runtime state
@@ -190,14 +198,18 @@ class AgentRuntime {
   rt.ModuleTerm? _appModule;
 
 
-  /// The state in memory is not the state the store holds: a save failed, and no save has been kept since ([_save]).  Nothing is handed to the layer, and no message acknowledged to it, from such a state (IGLP, Implementation Notes, "Persistence").
-  bool _unsaved = false;
+  /// The program the agent runs is a new version the store does not keep yet: an update was taken ([_restoreSaved]), and the new version is kept with the first state saved under it ([save]), so that a state the store holds is always of the program it keeps, or of the one [program] compiles to.
+  bool _programToKeep = false;
 
-  /// The failure of the save that made the state [_unsaved] has been reported, once.
-  bool _saveFailureReported = false;
+  /// The application is suspended: the host called [save], at its platform's announcement of termination, and the agent takes no event until the host calls [resume] (IGLP db0a117, Definition "Suspension, Termination, Crash": "a suspended agent takes no transition"; Persistence, When: "After the save the agent takes no event until the application resumes").  The events that arrive wait in [_events].
+  bool _suspended = false;
 
-  /// The messages applied whose cycles' states the store does not yet hold, by the messageIds the layer gave them: acknowledged to the layer once a save is kept ([_cycle]).
-  final List<String> _unacknowledged = [];
+  /// Whether the application is suspended ([save], [resume]).
+  bool get suspended => _suspended;
+
+  /// Whether the running mark was set in the store at this start, so that the restart was one after a crash (IGLP db0a117, Definition "Restart after a Crash"; Persistence, Restart): the epoch was incremented and every link end retired.
+  bool get restartedAfterCrash => _restartedAfterCrash;
+  bool _restartedAfterCrash = false;
 
   /// The agent is disposed: it takes no event, saves nothing and hands nothing to the layer ([dispose]).
   bool _disposed = false;
@@ -243,16 +255,14 @@ class AgentRuntime {
   })  : directory = directory ?? NetworkDirectory(),
         givenNetwork = network {
     if (network == null) return;
-    // The layer was instantiated with the agent's key pair (IGLP, The
-    // contract), and gives out only its public key, so the host is given the
-    // pair as well: the engine holds it from construction, so the certificate
-    // its compiler writes, self_key/1 and sign/3 are under the key the agent
-    // is named by.
+    // The layer was instantiated with the agent's key pair (IGLP 07a2b00, The
+    // contract), holds the private key and signs with it (GNA, decision 39;
+    // the GLP paper f265fec, "Identity and signature"), and gives out its
+    // public key: the runtime takes its key from the layer, signs by it, and
+    // keeps no private key.  A host that still hands the pair must hand the
+    // layer's.
     final kp = keyPair;
-    if (kp == null) {
-      throw ArgumentError('agent $agentId runs over a given network, whose '
-          'key pair names it, and was given none');
-    }
+    if (kp == null) return;
     if (kp.pub != network.getIdentity()) {
       throw ArgumentError('agent $agentId was given the key pair of '
           '${kp.pub.hex} and a network whose key is '
@@ -321,8 +331,13 @@ class AgentRuntime {
 
   bool get initialized => _initialized;
 
-  /// The agent's public key, once [initialize] has made or been given it.
-  PubKey? get publicKey => _kp?.pub;
+  /// The agent's public key, once [initialize] has made or been given it: the
+  /// given layer's, or the pair's the host builds the simulation's layer with.
+  PubKey? get publicKey =>
+      givenNetwork?.getIdentity() ?? _kp?.pub;
+
+  /// The agent's public key after [initialize].
+  PubKey get _selfKey => publicKey!;
 
   /// Whether [initialize] booted the agent afresh, its first start, and did
   /// not restore it from the state its [stateStore] holds (IGLP,
@@ -388,25 +403,36 @@ class AgentRuntime {
   /// Start the agent: where its [stateStore] holds a saved state, go on from it (IGLP, Definition "Restart": "the local state s_p of p at restart is its local state at termination"; Implementation Notes, "Persistence": "a restart resumes from the state the store holds"), the restart's cycle handing to the layer the messages that state holds undelivered ([_Resume]); otherwise boot it, the initial start being its first event cycle.
   Future<void> initialize() async {
     _log('INIT: Starting');
-    // The agent's key pair: provided, or the one its store keeps, or made
-    // now, at the agent's spawn, before anything is compiled or sent, from the
-    // SHA-256 of the clock, the device's hardware identifiers and the persona's
-    // name, and kept (IGLP, Implementation Notes, "Boot").  The engine holds it
-    // as the person's identity from construction --- so the certificate its
-    // compiler writes, self_key/1 and sign/3 are all under it --- and the
-    // networking layer below is given the same pair.
+    // The agent's key pair, for the simulation's layer: provided, or the one
+    // its store keeps, or made now, at the agent's spawn, before anything is
+    // compiled or sent, from the SHA-256 of the clock, the device's hardware
+    // identifiers and the persona's name, and kept (IGLP 07a2b00,
+    // Implementation Notes, "Boot").  The layer is given it and signs; the
+    // engine signs by the layer, so the certificate its compiler writes,
+    // self_key/1 and sign/3 are all under it ([_setUp]).
     final store = stateStore;
+    // Over a given network the layer holds the pair, and the runtime makes
+    // and keeps none; it keeps no copy of the private key beyond handing the
+    // store's key pair to the simulation's layer at its instantiation
+    // (the GLP paper f265fec, "Identity and signature"; IGLP 07a2b00, "The
+    // contract").
     _kp = keyPair ??
-        (store != null
-            ? await keptKeyPair(store, agentId)
-            : PersonIdentity.forPersona(agentId).keyPair);
+        (givenNetwork != null
+            ? null
+            : store != null
+                ? await keptKeyPair(store, agentId)
+                : PersonIdentity.forPersona(agentId).keyPair);
 
     final saved = await store?.load();
+    // The running mark: set at every start and resumption and cleared by the
+    // save, so set at a start where the application crashed since it last
+    // ran (IGLP db0a117, Persistence, When and Restart).
+    final crashed = store != null && await store.loadRunning();
     _setUp();
-    if (saved != null) {
-      await _restoreSaved(store!, saved);
+    if (saved != null && await _restoreOrLose(store!, saved)) {
       _log('INIT: restored the state saved at termination '
           '(${saved.length} bytes), GQ=${_runtime!.gq.length}');
+      if (crashed) await _restartAfterCrash(store);
       // The layer starts empty at every launch, and at a restart the runtime
       // makes every declaration the store holds to it again before any goal
       // of the agent is reduced; the program does not declare again (IGLP
@@ -418,6 +444,7 @@ class AgentRuntime {
       _log('INIT: ${redeclared.length} standing declarations made to the '
           'layer again');
       _output('[INIT] Restored the agent\'s saved state');
+      await store.saveRunning(true);
       await _submit(const _Resume());
       // The person's screen is not part of the local state: at a restart the
       // runtime grants refresh, an Input addressed to no construct, in the
@@ -442,10 +469,68 @@ class AgentRuntime {
     // "Persistence"), the version a later restart refusing an update
     // restarts it under.
     if (store != null) await _keepProgram(store);
+    // A crash before the first suspension: the agent restarts from "its
+    // initial local state where it was never suspended, with e_p incremented
+    // by one" (IGLP db0a117, Definition "Restart after a Crash"), the epoch
+    // opened before the boot allocates a name.
+    if (crashed && saved == null) await _restartAfterCrash(store, fresh: true);
+    if (store != null) await store.saveRunning(true);
     await _submit(const _Boot());
     _firstStart = true;
     _initialized = true;
     updateStats();
+  }
+
+  /// The restart after a crash (IGLP db0a117, Definition "Restart after a
+  /// Crash"; Persistence, Restart: "If the running mark is set at a start,
+  /// the application crashed: the runtime increments the epoch and retires
+  /// the link ends, and saves the state at once, so that a second crash
+  /// before the next suspension opens a further epoch"): the context opens
+  /// the next epoch and retires every link end but the serializer entry
+  /// ([MadContext.crashRestart]), and the state is saved at once, the one
+  /// save made at no suspension.  [fresh], the agent was never suspended:
+  /// its initial state is saved once the boot has run, by [initialize].
+  Future<void> _restartAfterCrash(AgentStateStore store,
+      {bool fresh = false}) async {
+    _restartedAfterCrash = true;
+    final retired = _ctx!.crashRestart();
+    _log('INIT: the running mark was set at this start, so the application '
+        'crashed: the agent restarts in epoch ${_ctx!.epoch}, '
+        '${retired.length} link ends retired');
+    _output('[INIT] The agent restarts after a crash, in epoch '
+        '${_ctx!.epoch}, every link end retired');
+    if (!fresh && !await _saveNow()) {
+      _log('[ERROR] the state of the restart after a crash was not saved: a '
+          'second crash before the next suspension restarts in this epoch '
+          'again');
+    }
+  }
+
+  /// Restore the state [saved] the store holds ([_restoreSaved]); true where it is restored.  A saved state the runtime cannot read or cannot restore --- written under an earlier format of the store, under a program the store no longer keeps, or otherwise unreadable --- is lost: the runtime reports it, on [onLog] as `[ERROR]` and to the person, and the agent starts afresh from the program, under the key pair the store keeps, as at a first start, and this returns false (IGLP db0a117, Implementation Notes, "Persistence", Failure: "If the runtime cannot read or cannot restore the saved state, as one written under an earlier format of the store, or under a program the store no longer keeps, the state is lost: the runtime reports it and starts the agent afresh, under the key pair the store keeps").  A state of another agent, of another name or key, is no state of this one and is not read: the restart throws, as until 2026-11-10 every unreadable state did ([SavedStateOfAnotherAgent]).
+  Future<bool> _restoreOrLose(AgentStateStore store, Uint8List saved) async {
+    try {
+      await _restoreSaved(store, saved);
+      return true;
+    } on SavedStateOfAnotherAgent {
+      rethrow;
+    } on Object catch (e) {
+      if (e is! SavedStateFormatException &&
+          e is! StateError &&
+          e is! RangeError &&
+          e is! FormatException) {
+        rethrow;
+      }
+      _log('[ERROR] the saved state cannot be read, and is lost: $e; the '
+          'agent starts afresh from the program, under its key pair');
+      _output('[ERROR] The agent\'s saved state cannot be read and is lost; '
+          'the agent starts afresh');
+      // Whatever the failed restore left in the engine goes with it.
+      _updateRefusal = null;
+      _updated = false;
+      _programToKeep = false;
+      _setUp();
+      return false;
+    }
   }
 
   /// Make the engine, load the agent's one program into it, and bind the
@@ -457,13 +542,19 @@ class AgentRuntime {
   /// Termination and Restart).
   void _setUp({StoredProgram? stored}) {
     final selfName = name; // its key over a given network ([name])
-    final kp = _kp!;
     _output('[INIT] Creating MadContext...');
+
+    // The layer first: the one given, or the simulation's, built with the
+    // agent's key pair, which it holds; the engine signs by it ([LayerSigner]),
+    // so the certificate its compiler writes, self_key/1 and sign/3 are under
+    // the key the agent is named by, and the runtime holds no private key
+    // (the GLP paper f265fec, "Identity and signature"; IGLP 07a2b00, "The
+    // contract").  Until 2026-11-10 the engine was given the key pair.
+    final network = givenNetwork ?? _makeSimulationNetwork(selfName, _kp!);
 
     // Use GlpEngine — the ONE way to run GLP programs.
     final engine = GlpEngine(
-        rootSelfGlpPath: rootSelfGlpPath,
-        identity: PersonIdentity(kp.pub, kp.priv));
+        rootSelfGlpPath: rootSelfGlpPath, identity: LayerSigner(network));
     _engine = engine;
 
     // Enable madGLP mode (creates the MadContext)
@@ -531,11 +622,10 @@ class AgentRuntime {
     // agent's GlpNetwork instead of serializing OutboundMessages directly ---
     // the one given, or, where none is, the simulation's.  The wire carries
     // the opaque payload bytes only (no MessageType).
-    final given = givenNetwork;
-    if (given != null) {
-      _bindGivenNetwork(given);
+    if (givenNetwork != null) {
+      _bindGivenNetwork(network);
     } else {
-      _bindSimulationNetwork(selfName, kp);
+      _bindSimulationNetwork(network as SimulationNetworkClient);
     }
 
     // A place event the layer reports is an event of its own: its cycle
@@ -567,6 +657,15 @@ class AgentRuntime {
     // on a nearby or reachable stream are bridged below the madGLP layer").
     _ctx!.reachSink = (reach, declaration) => unawaited(
         _submit(_Reach(reach, declaration)).catchError((Object _) {}));
+
+    // A change of the agent's own public address or local network likewise
+    // (the GLP paper f265fec, "Networking seam": public_address(S),
+    // network(S); IGLP 07a2b00, Definition "Seam Predicates").
+    _ctx!.publicAddressSink = (address, declaration) => unawaited(
+        _submit(_PublicAddress(address, declaration))
+            .catchError((Object _) {}));
+    _ctx!.networkSink = (net, declaration) => unawaited(
+        _submit(_Network(net, declaration)).catchError((Object _) {}));
 
     _output('[INIT] Loaded GLP program');
   }
@@ -735,10 +834,10 @@ class AgentRuntime {
     _updated = true;
     _log('INIT: the state is restored under the new version');
     _output('[INIT] The agent\'s program is updated');
-    // The new version is kept only once the state restored under it is: a
-    // state saved under the version the store keeps is restored under it
-    // again at the next restart, where this save failed ([_save]).
-    if (await _save(store)) await _keepProgram(store);
+    // The new version is kept only once a state restored under it is saved
+    // ([save]): until then the store holds a state saved under the version it
+    // keeps, which a restart restores under it again and compares again.
+    _programToKeep = true;
   }
 
   /// Whether [kept], the module value of the program the store keeps, is
@@ -857,13 +956,13 @@ class AgentRuntime {
       int Function(int? goal, int pc)? programCounter}) {
     final r = StateReader(bytes, programCounter: programCounter);
     if (r.agentName != name) {
-      throw StateError('the saved state is agent ${r.agentName}\'s, and this '
-          'agent is $name');
+      throw SavedStateOfAnotherAgent('the saved state is agent '
+          '${r.agentName}\'s, and this agent is $name');
     }
-    if (!bytesEqual(r.agentKey, _kp!.pub.bytes)) {
-      throw StateError('the saved state is of the agent of key '
+    if (!bytesEqual(r.agentKey, _selfKey.bytes)) {
+      throw SavedStateOfAnotherAgent('the saved state is of the agent of key '
           '${PubKey(r.agentKey).hex}, and this agent runs under '
-          '${_kp!.pub.hex}: an agent has one key, which its store keeps '
+          '${_selfKey.hex}: an agent has one key, which its store keeps '
           'across the termination');
     }
     if (!bytesEqual(r.programIdentity, savedUnder ?? _programIdentity!)) {
@@ -930,7 +1029,13 @@ class AgentRuntime {
 
   Future<void> _pump() async {
     while (_events.isNotEmpty) {
-      final (event, done) = _events.removeFirst();
+      // A suspended agent takes no event: what arrived waits for [resume].
+      // A save the host asks for while suspended, at a second announcement
+      // of termination, is the host's and is taken, wherever it waits.
+      final (event, done) = _suspended && !_disposed
+          ? (_takeSave() ?? (null, null))
+          : _events.removeFirst();
+      if (event == null || done == null) break;
       if (_disposed) {
         _log('DISPOSED: $event is not taken');
         done.complete();
@@ -947,105 +1052,109 @@ class AgentRuntime {
     _pumping = false;
   }
 
-  /// One event cycle (IGLP, Implementation Notes, "Event-driven execution": "On each event the agent binds what the event delivers, reduces until quiescent ... and then performs its Sends").  With no [stateStore], the agent applies [event], reduces and performs its Sends ([_apply], [Scheduler.drainAndSend]), and the message it applied is acknowledged.  With one, it saves before it sends ([_cycleSaving]), and a message it applied is acknowledged to the layer once a state that holds it applied is saved: at the end of its cycle, or, where that cycle's save failed, at the end of the first cycle after it whose save is kept ([GlpNetwork.acknowledge]; GNA, Section 2.9: "Confirm that the message delivered under messageId has been applied and saved by the runtime"; IGLP, Implementation Notes, "Persistence": "a delivered message acknowledged to the layer, only from a state the store holds").
+  /// Take the first [_Save] waiting in [_events], or null where none waits.
+  (_AgentEvent, Completer<void>)? _takeSave() {
+    for (final entry in _events) {
+      if (entry.$1 is _Save) {
+        _events.remove(entry);
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  /// One event cycle (IGLP d70ec2e, Implementation Notes, "Event-driven execution": "On each event the agent binds what the event delivers, reduces until quiescent ... and then performs its Sends"; "Persistence": "A message is handed to the layer, and a delivered message acknowledged to the layer, in the cycle that makes or applies it"): the agent applies [event], reduces and performs its Sends, waiting for the layer's answer to each ([_applyAndSend], [Scheduler.drainAndSend]), and the message it applied is acknowledged to the layer ([GlpNetwork.acknowledge]; GNA, Section 2.9), with or without a store.  The restart's cycle ([_Resume]) and a connection's ([_Retry]) apply nothing, and hand to the layer what M_p holds undelivered.  A save the host asked for is a cycle of its own ([_Save], [save]), so the state saved is one between cycles.  Until 2026-11-10 a cycle over a store saved the state before its Sends, and acknowledged a message once a state holding it applied was saved.
   Future<void> _cycle(_AgentEvent event) async {
-    final store = stateStore;
-    if (store == null) {
-      await _applyAndSend(event);
-      if (event is _Message && event.messageId.isNotEmpty) {
-        _ctx?.network?.acknowledge(event.messageId);
+    if (event is _Save) {
+      final kept = await _saveNow();
+      // The platform announced termination: the application is suspended
+      // from now until it resumes or ends, and the agent takes no event
+      // (IGLP db0a117, Definition "Suspension, Termination, Crash").  The
+      // save clears the running mark, so a termination from here is no crash.
+      _suspended = true;
+      final store = stateStore;
+      if (kept && store != null && !_disposed) {
+        try {
+          await store.saveRunning(false);
+        } catch (e) {
+          _log('[ERROR] the running mark was not cleared: $e; the next start '
+              'restarts after a crash');
+        }
       }
+      _log('SUSPENDED: the agent takes no event until the application '
+          'resumes');
+      event.kept.complete(kept);
       return;
     }
-    await _cycleSaving(event, store);
+    await _applyAndSend(event);
     if (event is _Message && event.messageId.isNotEmpty) {
-      _unacknowledged.add(event.messageId);
+      _ctx?.network?.acknowledge(event.messageId);
     }
-    if (_unsaved || _disposed) return;
-    for (final id in _unacknowledged) {
-      _ctx?.network?.acknowledge(id);
-    }
-    _unacknowledged.clear();
   }
 
-  /// The cycle of [event] over [store] (IGLP, Implementation Notes, "Persistence": "a message is handed to the layer, and a delivered message acknowledged to the layer, only from a state the store holds, and a restart resumes from the state the store holds").  The agent applies the event and reduces to quiescence, the Sends it makes left undelivered in M_p; saves the state, which holds them undelivered; and then hands them to the layer ([_handOver]).  Where the hand-over leaves the machine idle with a goal waiting on when_idle, the agent reduces again, which re-tries the goal, saves and hands over again, as [Scheduler.drainAndSend] does with no store; [maxQuiescenceCycles] bounds the goals of the whole cycle.  Once the last hand-over has handed messages to the layer, the state is saved again, holding them delivered, so that a restart hands over again only what the store holds undelivered.  The restart's cycle ([_Resume]) applies nothing, and begins with the hand-over of what the restored state holds undelivered.
+  /// Save the agent's local state in its store: the host's one call, made when its platform announces termination --- the phone app when it goes to the background, `AppLifecycleState.paused`; a headless host, the directory and the rendezvous server, at its termination signal --- and at no other time (IGLP d70ec2e, Implementation Notes, "Persistence": the runtime keeps the state "by a store the host gives it, ..., saving it when the application goes to the background, which the platform announces before it may kill the application, and at no other time").  Taken as a cycle of the agent's, after the cycles before it, so that the state saved is one between cycles, every Send of the last cycle handed over.  True where the state is kept.  False where the save fails --- the store keeps the state saved before it, and the failure is reported on [onLog], as `[ERROR]` ("If the save fails, the store keeps the state saved before it, and the runtime reports the failure") --- where the agent has no [stateStore], and where it is disposed.  What is saved is the whole state the Persistence note lists ([_snapshot]); the key pair is kept at the first start ([keptKeyPair]) and the compiled program at the first start and, after an update is taken, with the first save under it ([_keepProgram]).
   ///
-  /// Where a save fails ([_save]), the agent runs on its state in memory, and hands nothing to the layer from it: the cycle ends there, its Sends kept undelivered in M_p, and the next cycle that changes the state saves it again, and hands them over once that save is kept.  A cycle that changes nothing, the layer's report of a connection ([_Retry]), hands nothing over while the state in memory is not the one the store holds.  Until 2026-11-09 a cycle whose save failed went back to the state saved before it and was taken again at once, with no bound, so a store that kept failing, as a full disc does, spun the event loop (Cloud #6, Code_inbox 2026-11-08 21:13 UTC).
-  Future<void> _cycleSaving(_AgentEvent event, AgentStateStore store) async {
-    var goals = 0;
-    String? status;
-    if (event is! _Resume && event is! _Retry) {
-      (status, goals) = _step(() => _apply(event));
-      if (!await _save(store)) return;
-    } else if (_unsaved) {
-      return;
-    }
-    while (true) {
-      final handed = await _handOver();
-      // A run that stopped at the net, or on an error of the runtime, is not
-      // run again; the cycle ends with its hand-over.
-      final stopped =
-          status == ExecutionStatus.capped.name || status == 'error';
-      final idle = _runtime!.hasIdleWaits && _runtime!.isIdle;
-      if (stopped || !idle || goals >= maxQuiescenceCycles || _disposed) {
-        if (!stopped && idle && !_disposed) _reportCapped(goals);
-        if (handed > 0) await _save(store);
-        return;
+  /// The save suspends the agent until [resume]: it takes no event, and a
+  /// save asked for again while it is suspended is taken, the state saved
+  /// the same.
+  Future<bool> save() {
+    if (stateStore == null || _disposed) return Future.value(false);
+    final event = _Save();
+    unawaited(_submit(event).catchError((Object _) {
+      if (!event.kept.isCompleted) event.kept.complete(false);
+    }));
+    return event.kept.future;
+  }
+
+  /// The application resumed from its suspension: the host calls it when
+  /// its platform announces the resumption, the phone app at
+  /// `AppLifecycleState.resumed`.  The running mark is set again ("At every
+  /// start and at every resumption the runtime sets a mark, running, in the
+  /// store", IGLP db0a117, Persistence, When), and the agent takes the
+  /// events that arrived while it was suspended, and those to come.  Does
+  /// nothing where the agent is not suspended, or is disposed.
+  Future<void> resume() async {
+    if (!_suspended || _disposed) return;
+    final store = stateStore;
+    if (store != null) {
+      try {
+        await store.saveRunning(true);
+      } catch (e) {
+        _log('[ERROR] the running mark was not set at the resumption: $e; a '
+            'crash before the next suspension would restart in this epoch');
       }
-      final (runStatus, ran) =
-          _step(() => _runSync(maxCycles: maxQuiescenceCycles - goals));
-      status = runStatus;
-      goals += ran;
-      if (!await _save(store)) return;
+    }
+    _suspended = false;
+    _log('RESUMED: the agent takes events again');
+    if (!_pumping && _events.isNotEmpty) {
+      _pumping = true;
+      scheduleMicrotask(() => unawaited(_pump()));
     }
   }
 
-  /// Take [step] --- the event applied, or a run after a hand-over: the status of the step's run, and the number of goals it ran.
-  (String?, int) _step(String? Function() step) {
-    final before = goalCount;
-    final status = step();
-    return (status, goalCount - before);
-  }
-
-  /// Save in [store] the state the agent holds; true where it is kept.  Where the save fails, the agent runs on its state in memory ([_unsaved]), and the failure is reported once on [onLog], as `[ERROR]`, until a save is kept again; the state is saved again at the next cycle that changes it, not at once.  Nothing is saved once the agent is disposed: its store is released ([dispose]).
-  Future<bool> _save(AgentStateStore store) async {
-    if (_disposed) return false;
+  /// The save [save] asked for, in its cycle.
+  Future<bool> _saveNow() async {
+    final store = stateStore;
+    if (store == null || _disposed) return false;
     final bytes = _snapshot();
     try {
       await store.save(bytes);
     } catch (e) {
-      _unsaved = true;
-      if (!_saveFailureReported) {
-        _saveFailureReported = true;
-        _log('[ERROR] the agent\'s state was not saved: $e; the agent runs on '
-            'its state in memory, hands nothing to the layer from it, and '
-            'saves it again at the next cycle that changes it');
-      }
+      _log('[ERROR] the agent\'s state was not saved: $e; the store keeps '
+          'the state saved before it');
       return false;
     }
-    if (_disposed) return false;
-    if (_unsaved) {
-      _log('SAVED: the state is kept again, and what it holds undelivered '
-          'is handed to the layer');
+    _log('SAVED: the agent\'s state (${bytes.length} bytes)');
+    if (_programToKeep) {
+      try {
+        await _keepProgram(store);
+        _programToKeep = false;
+      } catch (e) {
+        _log('[ERROR] the program the agent runs was not kept: $e; it is kept '
+            'with the next save');
+      }
     }
-    _unsaved = false;
-    _saveFailureReported = false;
     return true;
-  }
-
-  /// Hand to the layer every message M_p holds undelivered and not held (IGLP, Definition "madGLP Send Transaction": Send "is enabled when (m, q) ∈ M_p is undelivered and not held"), from the state the store holds: the state just saved, or the state a restart resumes from; and wait for the layer's answer to each, a refused message being back in M_p undelivered (IGLP b014a9e, Implementation Notes, "Networking Seam", The contract: "the runtime waits for its answer and, on a refusal, keeps the message").  The number of messages handed over; none once the agent is disposed.
-  Future<int> _handOver() async {
-    if (_disposed) return 0;
-    final handed = _ctx!.flushMessages();
-    await _ctx!.answered();
-    if (handed > 0) _log('RUN: handed $handed messages to the layer');
-    return handed;
-  }
-
-  /// Apply [event] and reduce: the event's binding and a run until quiescent, which makes no Sends, its messages staying undelivered in M_p ([_runSync]).  The status of the run, or null where none was made.
-  String? _apply(_AgentEvent event) {
-    if (!_bind(event)) return null;
-    return _reportBoot(event, _runSync());
   }
 
   /// Apply [event], reduce, and perform the Sends the run makes, waiting for the layer's answer to each ([_runAndSend]).  The status of the run, or null where none was made.
@@ -1072,6 +1181,9 @@ class AgentRuntime {
         break;
       case _Retry():
         // The layer's report binds nothing.
+        break;
+      case _Save():
+        // Taken by [_cycle] before anything is bound.
         break;
       case _Message(:final from, :final payload):
         try {
@@ -1104,16 +1216,20 @@ class AgentRuntime {
         _ctx!.deliverPresence(underlay, presence, declaration: declaration);
       case _Reach(:final reach, :final declaration):
         _ctx!.deliverReach(reach, declaration: declaration);
+      case _PublicAddress(:final address, :final declaration):
+        _ctx!.deliverPublicAddress(address, declaration: declaration);
+      case _Network(:final network, :final declaration):
+        _ctx!.deliverNetwork(network, declaration: declaration);
     }
     return true;
   }
 
-  /// The agent's local state as the bytes saved in a cycle.
+  /// The agent's local state as the bytes [save] keeps: everything the Persistence note lists (IGLP d70ec2e).
   Uint8List _snapshot() {
     final w = StateWriter(
       programIdentity: _programIdentity!,
       agentName: name,
-      agentKey: _kp!.pub.bytes,
+      agentKey: _selfKey.bytes,
       appModule: _appModule,
     );
     _runtime!.saveState(w);
@@ -1200,18 +1316,29 @@ class AgentRuntime {
       _ctx?.peerLost(pk, underlay);
       onPeerLost?.call(pk, underlay);
     };
+    _wireOwnAddressAndNetwork(network);
   }
 
-  /// Build and bind the simulation's network, where the host was given none:
-  /// a [SimulationNetworkClient] over [directory], whose sends go to the
-  /// coordinator by [onSendMadMessage] and whose deliveries the coordinator
-  /// makes by [onMadMessageReceived].  A destination is a key or a readable
-  /// name standing for one, and the seam resolves both to the one agent (IGLP
-  /// 4f84612, Implementation Notes, "Simulation realisation").
-  void _bindSimulationNetwork(
+  /// The agent's own public address and local network, as the layer reports
+  /// each change, onto the public-address and network streams
+  /// ([MadContext.publicAddressChanged], [MadContext.networkChanged]; GNA
+  /// ip.tex, onConnectivityStatusChanged and onNetworkChanged; the GLP paper
+  /// f265fec, "Networking seam").
+  void _wireOwnAddressAndNetwork(GlpNetwork network) {
+    network.onConnectivityStatusChanged =
+        (oldAddress, newAddress) => _ctx?.publicAddressChanged(newAddress);
+    network.onNetworkChanged = (oldId, newId) => _ctx?.networkChanged(newId);
+  }
+
+  /// The simulation's network, where the host was given none: a
+  /// [SimulationNetworkClient] over [directory], made with the agent's key
+  /// pair [kp], which it holds and signs with, as the networking layer does
+  /// (IGLP 07a2b00, "Simulation realisation").  Bound by
+  /// [_bindSimulationNetwork] once the context exists.
+  SimulationNetworkClient _makeSimulationNetwork(
       String selfName, ({PubKey pub, Uint8List priv}) kp) {
     directory.register(selfName, kp.pub); // self identity (for sign/verify)
-    final network = SimulationNetworkClient(
+    return SimulationNetworkClient(
       selfId: selfName,
       directory: directory,
       keyPair: kp,
@@ -1219,7 +1346,17 @@ class AgentRuntime {
           _sendMadPayload(toId, Uint8List.fromList(payload)),
       acknowledgeToRouter: (messageId) => onDelivered?.call(messageId),
     );
+  }
+
+  /// Bind the simulation's network, where the host was given none:
+  /// a [SimulationNetworkClient] over [directory], whose sends go to the
+  /// coordinator by [onSendMadMessage] and whose deliveries the coordinator
+  /// makes by [onMadMessageReceived].  A destination is a key or a readable
+  /// name standing for one, and the seam resolves both to the one agent (IGLP
+  /// 4f84612, Implementation Notes, "Simulation realisation").
+  void _bindSimulationNetwork(SimulationNetworkClient network) {
     _ctx!.network = network; // backs the seam predicates (IGLP Definition Seam Predicates)
+    _wireOwnAddressAndNetwork(network);
 
     // A destination, in a global name or in a message, is a key or a
     // readable name standing for one, and the seam resolves both to the one
@@ -1273,6 +1410,27 @@ class AgentRuntime {
   /// an event, and its cycle is taken in turn ([_cycle]).  An act whose cycle
   /// is not saved before the application terminates is not in the state the
   /// store holds, and no message of its cycle has reached the layer.
+  /// Run [goal] on the agent's engine and give its result, for a host that
+  /// reads what the program exports, as the Grassroots App reads a compiled
+  /// platform's `contract(Text, Schemas)` and `version(Current, Back)` (vGLP
+  /// b413fe1, Section 5.4: "so the app that loads the platform reads its
+  /// contract and its versions from it"), a module's exported procedure named
+  /// by the module, `platform # contract(T, S)` ([GlpEngine.runGoal]).  The
+  /// goal runs to quiescence between the agent's own event cycles, which the
+  /// caller orders ([isolate_protocol]); before [initialize] there is no
+  /// engine, and the result is a failure.  A goal names an entry point of the
+  /// program, the root's exports (TGLP, modules.tex, "Entry and the absence
+  /// of a boot module"); one naming another module's export by its module is
+  /// refused as it is at the REPL's prompt.
+  Future<ExecutionResult> query(String goal) async {
+    final engine = _engine;
+    if (engine == null) {
+      return ExecutionResult(
+          status: ExecutionStatus.failed, error: 'the agent is not initialised');
+    }
+    return engine.runGoal(goal);
+  }
+
   Future<void> injectUserInput(rt.Term act) async {
     final shown = formatTerm(act);
     _log('USER_INPUT: $shown');
@@ -1298,9 +1456,8 @@ class AgentRuntime {
   /// networking layer, which deserializes and dispatches them.
   /// The simulation's delivery, which its coordinator makes; a given network
   /// delivers its own messages, and a delivery here is refused.  Completes
-  /// when the message's cycle is complete --- saved, where the agent has a
-  /// [stateStore] --- and then the message is acknowledged, [onDelivered] told
-  /// [messageId], where the coordinator gives one.
+  /// when the message's cycle is complete, the message then acknowledged,
+  /// [onDelivered] told [messageId], where the coordinator gives one.
   Future<void> onMadMessageReceived(String from, Uint8List payload,
       {String messageId = ''}) async {
     _log('MAD_RECV from $from (${payload.length} bytes)');
@@ -1327,40 +1484,6 @@ class AgentRuntime {
   // =========================================================================
   // EXECUTION
   // =========================================================================
-
-  /// Run the scheduler until quiescent, within an event cycle, and return the
-  /// execution status name, or null if not initialized.
-  ///
-  /// Per agent-runtime-spec.md Section 3: one drain (run all runnable goals
-  /// until quiescent), one flush (send all queued outbound messages) --- and
-  /// again while a goal waits on when_idle and the flush has left the machine
-  /// idle (IGLP eadadcd, Implementation Notes, "The when_idle Guard";
-  /// [Scheduler.drainAndSend]).
-  ///
-  /// Quiescent is the queue empty and nothing runnable. One
-  /// [Scheduler.drainWithStatus] does not reach it — it stops at its cycle cap
-  /// with goals still queued — so the drain is [Scheduler.drainToQuiescence],
-  /// which repeats it until the queue is empty. The cap left behind is
-  /// [maxQuiescenceCycles], a net and not a budget, over the whole cycle.
-  ///
-  /// It is run only within an event cycle: "a message is handed to the layer
-  /// ... only from a state the store holds" (IGLP fcd6128, Implementation
-  /// Notes, "Persistence").  Until 2026-10-24 two public methods ran it
-  /// outside one, `runUntilQuiescent` and `onLegacyMessageReceived`, which
-  /// nothing called.
-  ///
-  /// [_runSync] makes no Sends: its messages stay undelivered in M_p, for a cycle over a store to hand to the layer once the state holding them is saved ([_cycleSaving]).  [maxCycles], where given, bounds the goals of this run in place of [maxQuiescenceCycles].
-  String? _runSync({int? maxCycles}) {
-    if (!_runStarts()) return null;
-    try {
-      final result = _scheduler!.drainToQuiescence(
-          maxCycles: maxCycles ?? maxQuiescenceCycles, debug: _tracing);
-      return _runDone(result, 0);
-    } catch (e, st) {
-      _log('RUN ERROR: $e\n$st');
-      return 'error';
-    }
-  }
 
   /// [_runAndSend] drains, then performs the Sends and waits for the layer's answer to each, and again while a goal waits on when_idle ([Scheduler.drainAndSend]): "the runtime waits for its answer and, on a refusal, keeps the message and sends it again later" (IGLP b014a9e, Implementation Notes, "Networking Seam", The contract).
   Future<String?> _runAndSend() async {
@@ -1445,7 +1568,7 @@ class AgentRuntime {
   // CLEANUP
   // =========================================================================
 
-  /// End this launch of the agent: "shutdown is the embedding application's" (IGLP, Implementation Notes, "Event-driven execution"), and a launch has one agent and one store (Definition "Restart"; "Persistence").  The agent takes no event after it --- a cycle in progress makes no save and no hand-over after it --- and the events waiting are not taken; its channels to the layer and to the person are closed, the callbacks it set on the network unset and [onOutput] with them; and its store is released, no save being made in it, so that the next launch, in this process or another, is the one agent that writes it.  The network itself is the host's, which disposes it.  Until 2026-11-09 it did nothing, and a disposed host's agent went on taking events and saving, two launches in one process writing one state file (Cloud #6, Code_inbox 2026-11-08 21:13 UTC).
+  /// End this launch of the agent: "shutdown is the embedding application's" (IGLP, Implementation Notes, "Event-driven execution"), and a launch has one agent and one store (Definition "Restart"; "Persistence").  The agent takes no event after it --- a cycle in progress makes no hand-over after it, and a [save] asked for keeps nothing --- and the events waiting are not taken; its channels to the layer and to the person are closed, the callbacks it set on the network unset and [onOutput] with them; and its store is released, no save being made in it, so that the next launch, in this process or another, is the one agent that writes it.  The network itself is the host's, which disposes it.  Until 2026-11-09 it did nothing, and a disposed host's agent went on taking events and saving, two launches in one process writing one state file (Cloud #6, Code_inbox 2026-11-08 21:13 UTC).
   void dispose() {
     if (_disposed) return;
     _disposed = true;
@@ -1458,6 +1581,8 @@ class AgentRuntime {
       network.onPeerDiscovered = null;
       network.onPeerLost = null;
       network.onPlaceEvent = null;
+      network.onConnectivityStatusChanged = null;
+      network.onNetworkChanged = null;
     }
     final ctx = _ctx;
     if (ctx != null) {
@@ -1465,6 +1590,8 @@ class AgentRuntime {
       ctx.placeCentreSink = null;
       ctx.presenceSink = null;
       ctx.reachSink = null;
+      ctx.publicAddressSink = null;
+      ctx.networkSink = null;
     }
     onOutput = null;
   }
@@ -1488,7 +1615,7 @@ final class _Boot extends _AgentEvent {
   String toString() => 'the initial start';
 }
 
-/// The restart from the state the store holds (IGLP, Implementation Notes, "Persistence": "a restart resumes from the state the store holds"): its cycle applies nothing, and hands to the layer the messages that state holds undelivered, which were saved before their hand-over and may not have reached the layer before the termination ([AgentRuntime._cycleSaving]).
+/// The restart from the state the store holds (IGLP d70ec2e, Implementation Notes, "Persistence": "a restart resumes from the state the store holds"): its cycle applies nothing, and hands to the layer the messages that state holds undelivered, which the layer had refused before the save and the agent kept (IGLP, "The contract": "on a refusal, keeps the message and sends it again").
 final class _Resume extends _AgentEvent {
   const _Resume();
   @override
@@ -1539,6 +1666,13 @@ final class _PlaceEvent extends _AgentEvent {
 /// A presence the layer reports for the nearby declaration on [underlay] that
 /// stood when it was reported, [declaration]: `seen(K)` or `gone(K)` (GLP-Spec
 /// 210cee1, "Networking seam").
+/// The host's save, at its platform's announcement of termination ([AgentRuntime.save]): its cycle saves the state and completes [kept] with whether it is kept.
+final class _Save extends _AgentEvent {
+  final Completer<bool> kept = Completer<bool>();
+  @override
+  String toString() => 'the save the host asked for';
+}
+
 /// The centre the layer registered [place] about, answering the declaration
 /// of number [declaration] ([MadContext.placeCentreSink]).
 final class _PlaceCentre extends _AgentEvent {
@@ -1570,6 +1704,28 @@ final class _Reach extends _AgentEvent {
   String toString() => 'the reach $reach';
 }
 
+/// A change of the agent's own public address the layer reports, for the
+/// public-address declaration that stood when it was reported, [declaration]:
+/// `address(A)` or `none` (the GLP paper f265fec, "Networking seam").
+final class _PublicAddress extends _AgentEvent {
+  final rt.Term address;
+  final int declaration;
+  const _PublicAddress(this.address, this.declaration);
+  @override
+  String toString() => 'the public address $address';
+}
+
+/// A change of the local network the layer reports, for the network
+/// declaration that stood when it was reported, [declaration]: `attached(N)`
+/// or `none` (the GLP paper f265fec, "Networking seam").
+final class _Network extends _AgentEvent {
+  final rt.Term network;
+  final int declaration;
+  const _Network(this.network, this.declaration);
+  @override
+  String toString() => 'the network $network';
+}
+
 /// A restart's refusal of an update (IGLP 61f3283, madglp-spec.tex,
 /// Termination and Restart: "otherwise the update is refused, and the agent
 /// restarts under the version it terminated under"): for each procedure a
@@ -1580,4 +1736,9 @@ class UpdateRefusal {
   const UpdateRefusal(this.reasons);
   @override
   String toString() => reasons.join('; ');
+}
+
+/// A saved state of another agent, of another name or key, which is not read: the restart throws it, where a state this agent's that the runtime cannot read or cannot restore is lost and starts the agent afresh ([AgentRuntime.initialize]; IGLP db0a117, Implementation Notes, "Persistence", Failure).
+class SavedStateOfAnotherAgent extends StateError {
+  SavedStateOfAnotherAgent(super.message);
 }

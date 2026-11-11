@@ -797,41 +797,23 @@ class _ChatScreenState extends State<ChatScreen> {
       message: message,
       onLongPress: (position) => _showMessageOptions(message, position),
       messagesState: widget.store.state.messages,
-      onResend: message.isOutgoing ? () => _resendMessage(message) : null,
+      onRetry: message.isOutgoing ? _retryMessages : null,
       store: widget.store,
     );
   }
 
-  Future<void> _resendMessage(ChatMessageState message) async {
-    debugPrint(
-        "Resending '${message.content}' to peer ${widget.peer.displayName}");
-
-    // Send via Grassroots using SayBlock. Picture resend is not yet wired —
-    // for now resend treats the message as text. (The bubble's resend affordance
-    // is only shown for failed messages, and pictures over BLE rarely fail
-    // partway because fragmentation is in-process.) The layer gives the block
-    // sent again an id of its own.
-    final block = TextSayBlock(content: message.content);
-    final messageId = await _sendChat(widget.peer.publicKey, block);
-
-    if (!mounted) return;
-
-    if (messageId != null) {
-      debugPrint("Resend successful for messageId: $messageId");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Message resent'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to resend message'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+  /// A failed message's red "!": the layer tries this peer's queued
+  /// messages now rather than at its next heartbeat.  The message is still in
+  /// the layer's queue, under the id `send` gave it, so nothing is sent
+  /// again under a new id.
+  void _retryMessages() {
+    widget.grassroots.retryQueued(widget.peer.publicKey);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Retrying'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   void _showPeerInfo() {
@@ -961,14 +943,14 @@ class _MessageBubble extends StatelessWidget {
   final ChatMessageState message;
   final void Function(Offset position)? onLongPress;
   final MessagesState? messagesState;
-  final VoidCallback? onResend;
+  final VoidCallback? onRetry;
   final Store<AppState>? store;
 
   const _MessageBubble({
     required this.message,
     this.onLongPress,
     this.messagesState,
-    this.onResend,
+    this.onRetry,
     this.store,
   });
 
@@ -1193,9 +1175,9 @@ class _MessageBubble extends StatelessWidget {
           color: Colors.white70,
         );
       case MessageStatus.failed:
-        // Red exclamation (failed) - clickable for resend
+        // Red exclamation (its tries ran out; still queued) - tap to retry
         return GestureDetector(
-          onTap: onResend,
+          onTap: onRetry,
           child: const Icon(
             Icons.error_outline,
             size: 14,

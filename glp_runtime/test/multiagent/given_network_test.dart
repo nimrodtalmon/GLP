@@ -28,6 +28,7 @@ import 'package:glp_runtime/engine/glp_engine.dart';
 import 'package:glp_runtime/multiagent/agent_runtime.dart';
 import 'package:glp_runtime/multiagent/agent_state_store.dart';
 import 'package:glp_runtime/multiagent/glp_network.dart';
+import 'package:glp_runtime/multiagent/identity.dart' show PersonIdentity;
 import 'package:glp_runtime/multiagent/simulation_network.dart';
 import 'package:glp_runtime/runtime/seam_declarations.dart';
 import 'package:glp_runtime/runtime/terms.dart' show ConstTerm, StructTerm;
@@ -220,10 +221,14 @@ class _WireNetwork extends GlpNetwork {
   @override
   List<Underlay> peerUnderlays(PubKey pk) => const [Underlay.wan];
   @override
-  Uint8List sign(Uint8List message) => throw UnimplementedError();
+  // The layer holds the private key and signs: the runtime signs by it, for
+  // the certificate its compiler writes and sign/3 (the GLP paper f265fec,
+  // "Identity and signature").
+  Uint8List sign(Uint8List message) =>
+      PersonIdentity(keyPair.pub, keyPair.priv).sign(message);
   @override
   bool verify(PubKey signer, Uint8List message, Uint8List signature) =>
-      throw UnimplementedError();
+      PersonIdentity.verify(signer, message, signature);
   @override
   List<DiscoveredPeer> getPeers() => const [];
   @override
@@ -637,6 +642,9 @@ void main() {
       first.onPeerDiscovered!(peer, ProximityUnderlay.pan);
       expect(await out.lineWhere((l) => l.startsWith('< ')),
           '< seen(${peer.hex})');
+      // The app goes to the background, which saves the state (IGLP
+      // d70ec2e, Implementation Notes, "Persistence").
+      expect(await agent.save(), isTrue);
 
       final second = _WireNetwork(kp, _Wire());
       final again = AgentRuntime(
@@ -683,8 +691,9 @@ void main() {
       );
       // The layer answers the place's declaration with the centre it
       // registered, the device's location, which the runtime keeps in a cycle
-      // of its own and saves (IGLP 96cd44a, "Persistence": "the places with
-      // the centre each was declared about"); the test waits on that cycle.
+      // of its own (IGLP 96cd44a, "Persistence": "the places with the centre
+      // each was declared about"); the test waits on that cycle before the
+      // host saves.
       final kept = Completer<void>();
       agent.onLog = (_, m) {
         if (m.startsWith('PLACE: home kept about') && !kept.isCompleted) {
@@ -704,6 +713,8 @@ void main() {
           reason: 'the first start makes each declaration once, the place '
               'about the device\'s location');
       await kept.future;
+      expect(await agent.save(), isTrue,
+          reason: 'the app goes to the background, which saves the state');
 
       final log = <String>[];
       final second = _RecordingNetwork(kp, _Wire(), log);
@@ -860,6 +871,7 @@ void main() {
       await agent.initialize();
       await agent.injectUserInput(ConstTerm('watch'));
       expect(agent.runtime!.reachableStreams.isDeclared('wan'), isTrue);
+      expect(await agent.save(), isTrue);
 
       final second = _WireNetwork(kp, _Wire());
       final again = AgentRuntime(
@@ -925,19 +937,22 @@ void main() {
       ]);
     });
 
-    test('the agent\'s key pair is the layer\'s', () {
+    test('the agent\'s key is the layer\'s: the host hands the runtime no key '
+        'pair, the layer holding the private key (the GLP paper f265fec, '
+        '"Identity and signature"; IGLP 07a2b00, "The contract")', () async {
       final wire = _Wire();
       final kp = generateKeyPair();
       final other = generateKeyPair();
-      expect(
-          () => AgentRuntime(
-                agentId: 'a',
-                program: play,
-                rootSelfGlpPath: root,
-                network: _WireNetwork(kp, wire),
-              ),
-          throwsArgumentError,
-          reason: 'the layer keeps its private key; the host is given the pair');
+      final network = _WireNetwork(kp, wire);
+      final agent = AgentRuntime(
+        agentId: 'a',
+        program: play,
+        rootSelfGlpPath: root,
+        network: network,
+      );
+      addTearDown(agent.dispose);
+      expect(agent.name, kp.pub.hex, reason: 'named by the layer\'s key');
+      expect(agent.publicKey, kp.pub);
       expect(
           () => AgentRuntime(
                 agentId: 'a',
@@ -947,7 +962,8 @@ void main() {
                 network: _WireNetwork(kp, wire),
               ),
           throwsArgumentError,
-          reason: 'an agent has one key, its name');
+          reason: 'an agent has one key, its name: a pair given must be the '
+              'layer\'s');
     });
 
     test('a coordinator delivers nothing to an agent over a given network',

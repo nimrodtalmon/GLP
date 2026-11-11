@@ -1242,7 +1242,7 @@ const Set<String> runtimeGuards = {
   'ground/1', 'known/1', 'integer/1', 'string/1', 'constant/1', 'number/1',
   'real/1', 'list/1', 'compound/1', 'module/1', 'is_mutual_ref/1', 'unknown/1',
   'otherwise/0', 'wait/1', 'wait_until/1', 'when_idle/0', 'no_readers/1',
-  '=?=/2', '=?\\=/2',
+  'widowed_writer/1', 'widowed_reader/1', '=?=/2', '=?\\=/2',
 };
 
 /// The arithmetic comparison guards (GLP-Spec appendix-guards.tex,
@@ -1599,6 +1599,55 @@ GuardResult _evaluateGuard(String predicateName, List<Object?> args, RunnerConte
       final readers = _termVariables(cx, _equalityOperand(args[0])).readers;
       if (readers.isEmpty) return GuardResult.success;
       return _undecidedMember(cx, readers);
+
+    case 'widowed_writer':
+    case 'widowed_reader':
+      // The GLP paper 07835e1, appendix-guards.tex, the guard table:
+      // widowed_writer(X), "the reader paired to the writer the argument
+      // stands for occurs in no goal of the agent and in no link end the
+      // agent holds, the goal being reduced not counted"; widowed_reader(X?),
+      // "the writer paired to the reader the argument stands for" likewise;
+      // each declared in its one mode, `procedure widowed_writer(_).` and
+      // `procedure widowed_reader(_?).`.  The head's binding makes the
+      // clause's variable the goal's (Remark Guards and SRSW: the variable in
+      // the guard, its pair in the head, neither elsewhere): a head reader X?
+      // against the goal's unbound writer W makes X stand for W
+      // ([execHeadVariable]), and a head writer X against the goal's reader
+      // R? makes X? stand for R?.  The occurrences asked of are the agent's
+      // state as the store saves it, the goal being reduced left out
+      // ([GlpRuntime.cellOccurs]); a variable sent to another agent occurs in
+      // its link end, until the end is retired (IGLP cec4682, Definition
+      // "Retire").  An argument that is not an unassigned variable of the
+      // guard's mode --- a value, a reader whose writer is assigned, or a
+      // variable of the other mode --- is never widowed, and the guard fails.
+      // While the paired variable occurs the goal suspends on a reader the
+      // scheduler assigns at quiescence once it occurs nowhere
+      // ([GlpRuntime.wakeWidowed]): the guard is monotonic.
+      if (args.isEmpty) return GuardResult.failure;
+      final heap = cx.rt.heap;
+      final x = args[0];
+      final HeapCell? cell = x is VarRef ? x.addr : (x is HeapCell ? x : null);
+      if (cell == null) return GuardResult.failure;
+      final HeapCell? paired;
+      if (predicateName == 'widowed_writer') {
+        if (!heap.isWriter(cell)) return GuardResult.failure;
+        final end = heap.derefAddr(cell);
+        if (end is! VarRef || !identical(end.addr, cell)) {
+          return GuardResult.failure; // assigned, or bound to another
+        }
+        paired = cell.pairedReader;
+      } else {
+        if (!heap.isReader(cell)) return GuardResult.failure;
+        if (heap.isReaderBound(cell)) return GuardResult.failure;
+        paired = heap.tryWriterForReader(cell);
+      }
+      if (paired == null) return GuardResult.failure;
+      if (!cx.rt.cellOccurs(paired, exceptGoal: cx.goalId)) {
+        cx.rt.clearWidowWait(cx.goalId);
+        return GuardResult.success;
+      }
+      cx.Si.add(cx.rt.widowReader(cx.goalId, paired));
+      return GuardResult.suspend;
 
     case 'known':
       // Check if argument is not a variable
@@ -2913,6 +2962,8 @@ mixin OpExecutors {
     // instance that succeeds, where it waited on X? until 2026-10-09.
     if (unboundReaders.isNotEmpty &&
         predicateName != 'unknown' &&
+        predicateName != 'widowed_writer' &&
+        predicateName != 'widowed_reader' &&
         predicateName != '=?=' &&
         predicateName != '=?\\=' &&
         predicateName != '@<' &&

@@ -31,6 +31,7 @@ import 'package:glp_multiagent/ui_runtime/bridge.dart';
 import 'package:glp_multiagent/ui_runtime/term.dart';
 import 'package:glp_runtime/multiagent/agent_state_store.dart';
 import 'package:glp_runtime/multiagent/glp_network.dart';
+import 'package:glp_runtime/multiagent/identity.dart' show PersonIdentity;
 import 'package:glp_runtime/multiagent/simulation_network.dart'
     show generateKeyPair;
 
@@ -64,10 +65,14 @@ class _Alone extends GlpNetwork {
   @override
   List<Underlay> peerUnderlays(PubKey pk) => const [];
   @override
-  Uint8List sign(Uint8List message) => throw UnimplementedError();
+  // The layer holds the private key and signs: the runtime signs by it, for
+  // the certificate its compiler writes and sign/3 (the GLP paper f265fec,
+  // "Identity and signature").
+  Uint8List sign(Uint8List message) =>
+      PersonIdentity(keyPair.pub, keyPair.priv).sign(message);
   @override
   bool verify(PubKey signer, Uint8List message, Uint8List signature) =>
-      throw UnimplementedError();
+      PersonIdentity.verify(signer, message, signature);
   @override
   List<DiscoveredPeer> getPeers() => const [];
   @override
@@ -169,7 +174,6 @@ void main() {
           program: '$programs/social/graph/core',
           rootSelfGlpPath: '$programs/self.glp',
           network: _Alone(kp),
-          keyPair: kp,
           manifest: superappManifest,
           stateStore: FileAgentStateStore(path),
         ));
@@ -188,6 +192,9 @@ void main() {
     expect(seen.keys, contains(0));
     expect(seen.length, greaterThan(1));
     expect(first.errors, isEmpty);
+    // The app goes to the background, which saves the agent's state (IGLP
+    // d70ec2e, Implementation Notes, "Persistence"), and is terminated.
+    expect(await first.host.save(), isTrue);
     first.host.dispose();
 
     // The second start, from the same store: no first act, and the screen,

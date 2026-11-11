@@ -55,7 +55,6 @@ library;
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:args/args.dart';
 import 'package:glp_runtime/multiagent/agent_runtime.dart';
@@ -128,7 +127,6 @@ Future<void> main(List<String> argv) async {
     agentId: 'rendezvous',
     program: args['program'] as String,
     rootSelfGlpPath: args['root-self'] as String,
-    keyPair: (pub: key, priv: Uint8List.fromList(identity.privateKey)),
     network: network,
     stateStore: FileAgentStateStore(args['state-file'] as String),
   );
@@ -167,6 +165,10 @@ Future<void> main(List<String> argv) async {
   for (final s in subscriptions) {
     await s.cancel();
   }
+  // The termination signal is the announcement of termination: the agent's
+  // state is saved now, and at no other time (IGLP d70ec2e, Implementation
+  // Notes, "Persistence").
+  if (!await agent.save()) stderr.writeln('the agent\'s state was not saved');
   agent.dispose();
   await layer.dispose();
   exit(0);

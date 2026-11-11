@@ -62,7 +62,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:glp_runtime/multiagent/agent_runtime.dart';
 import 'package:glp_runtime/multiagent/agent_state_store.dart';
@@ -94,8 +93,6 @@ class SuperAppHost {
   /// The network the agent runs over.
   final GlpNetwork network;
 
-  /// The agent's key pair, the layer's ([AgentRuntime.keyPair]).
-  final ({PubKey pub, Uint8List priv}) keyPair;
 
   /// The entry the person's first act names ([superappEntry]).
   final String entry;
@@ -167,7 +164,6 @@ class SuperAppHost {
     required this.program,
     required this.rootSelfGlpPath,
     required this.network,
-    required this.keyPair,
     required this.manifest,
     this.entry = superappEntry,
     this.services = const [],
@@ -178,14 +174,15 @@ class SuperAppHost {
           agentId: agentId,
           program: program,
           rootSelfGlpPath: rootSelfGlpPath,
-          keyPair: keyPair,
           network: network,
           stateStore: stateStore,
           installedApp: installedApp,
         );
 
-  /// The agent's key, as 64 lowercase hex characters: its name.
-  String get key => keyPair.pub.hex;
+  /// The agent's key, as 64 lowercase hex characters: its name, the layer's
+  /// (GNA, decision 39: the layer holds the key pair; the host holds no
+  /// private key).
+  String get key => network.getIdentity().hex;
 
   /// Start the agent: compile the program, post the initial goal, and, at
   /// the agent's first start, send on the person channel the act that starts
@@ -194,10 +191,10 @@ class SuperAppHost {
   /// person's place ([AgentRuntime.initialize]).  The person's grants go to
   /// the agent as they come, each an act of the person.  A restart under a
   /// new version of the program restores the state under it or refuses the
-  /// update ([updateRefusal]).  Throws where the saved state cannot be
-  /// restored: another agent's, or saved under code that is neither the
-  /// program's compilation nor the program the store keeps (AgentRuntime's
-  /// restore).
+  /// update ([updateRefusal]).  A saved state the runtime cannot read is a
+  /// loss of the state, reported in the transcript, and the agent starts
+  /// afresh, as at a first start (IGLP d70ec2e, Implementation Notes,
+  /// "Persistence"); a state of another agent throws.
   Future<void> start() async {
     agent.onUserOutput = (term) {
       onUserOutput?.call(term);
@@ -225,6 +222,19 @@ class SuperAppHost {
   /// Completes once every act of the person so far has been taken by the
   /// agent, each its event cycle complete.
   Future<void> get idle => _acts;
+
+  /// Save the agent's local state in the [stateStore]: the app calls it when
+  /// it goes to the background, which the platform announces before it may
+  /// kill the app, and at no other time (IGLP d70ec2e, Implementation Notes,
+  /// "Persistence"; [AgentRuntime.save]).  True where the state is kept;
+  /// false where the save failed, the store keeping the state saved before
+  /// it, or there is no store.
+  Future<bool> save() => agent.save();
+
+  /// The app resumed from the background: the agent takes events again, and
+  /// the running mark is set ([AgentRuntime.resume]; IGLP db0a117,
+  /// Implementation Notes, "Persistence", When).
+  Future<void> resume() => agent.resume();
 
   void dispose() => agent.dispose();
 

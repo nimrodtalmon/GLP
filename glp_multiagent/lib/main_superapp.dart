@@ -87,6 +87,13 @@ class _GrassrootsScreenState extends State<GrassrootsScreen> {
   ScreenReporter? _screen;
   AppLifecycleListener? _lifecycle;
 
+  /// The app's going to the background, on which the agent's state is saved
+  /// (IGLP d70ec2e, Implementation Notes, "Persistence": the runtime keeps
+  /// the state "saving it when the application goes to the background, which
+  /// the platform announces before it may kill the application, and at no
+  /// other time"): `AppLifecycleState.paused`.
+  AppLifecycleListener? _background;
+
   /// The person's screen, which a debuggable build reads as text.
   final GlobalKey _surface = GlobalKey();
 
@@ -121,6 +128,7 @@ class _GrassrootsScreenState extends State<GrassrootsScreen> {
 
   @override
   void dispose() {
+    _background?.dispose();
     _host?.dispose();
     _net?.dispose();
     if (debugLogOn) {
@@ -162,7 +170,7 @@ class _GrassrootsScreenState extends State<GrassrootsScreen> {
               ? [layerActions(reporter)]
               : const []);
       _net = net;
-      if (debugLogOn) reporter?.setPhone(net.keyPair.pub.hex);
+      if (debugLogOn) reporter?.setPhone(net.key.hex);
       // The agent's local state is kept across the termination of the app by
       // a store in the app's own directory, which the person does not see
       // (IGLP, Implementation Notes, "Persistence": "a store the host gives
@@ -181,7 +189,6 @@ class _GrassrootsScreenState extends State<GrassrootsScreen> {
         network: debugLogOn && reporter != null
             ? ReportingGlpNetwork(net.network, reporter)
             : net.network,
-        keyPair: net.keyPair,
         manifest: superappManifest,
         services: readServices(glp.coreDir),
         firstAct: script?.firstAct,
@@ -209,6 +216,23 @@ class _GrassrootsScreenState extends State<GrassrootsScreen> {
         _setStatus(net.transports
             ? 'Ready'
             : 'Ready, with neither Bluetooth nor the local network');
+      });
+      // The agent's state is saved when the app goes to the background, and
+      // at no other time (IGLP d70ec2e, Implementation Notes, "Persistence";
+      // [SuperAppHost.save]); a crash loses what the agent did since.
+      _background = AppLifecycleListener(onStateChange: (state) {
+        if (state == AppLifecycleState.paused) {
+          host.save().catchError((Object e, StackTrace stack) {
+            _caught(e, stack);
+            return false;
+          });
+        } else if (state == AppLifecycleState.resumed) {
+          // The suspension ends: the agent takes events again, and the
+          // running mark is set (IGLP db0a117, Persistence, When).
+          host.resume().catchError((Object e, StackTrace stack) {
+            _caught(e, stack);
+          });
+        }
       });
       try {
         await host.start();

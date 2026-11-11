@@ -7,7 +7,7 @@ import 'seam_declarations.dart';
 import 'sim_clock.dart';
 import 'saved_state.dart';
 import 'terms.dart' show Term, ModuleTerm;
-import 'package:glp_runtime/multiagent/identity.dart' show PersonIdentity;
+import 'package:glp_runtime/multiagent/identity.dart' show AgentSigner;
 import 'package:glp_runtime/multiagent/glp_network.dart' show Application;
 import 'package:glp_runtime/multiagent/mad_context.dart' show MadContext;
 import 'package:glp_runtime/bytecode/runner.dart'
@@ -138,6 +138,21 @@ class GlpRuntime {
   /// paragraph after it), kept whether a networking layer is bound or none is.
   late final PlaceStreams reachableStreams = PlaceStreams(this);
 
+  /// The public-address declaration and its stream, under the one key
+  /// `wan`: the runtime's bookkeeping behind declare(public_address(S)) and
+  /// remove(public_address), fed and closed as a place's stream (the GLP
+  /// paper f265fec, appendix-guards, "Networking seam"; IGLP 07a2b00,
+  /// Definition "Seam Predicates"), kept whether a networking layer is bound
+  /// or none is.
+  late final PlaceStreams publicAddressStreams = PlaceStreams(this);
+
+  /// The network declaration and its stream, under the one key `local`: the
+  /// runtime's bookkeeping behind declare(network(S)) and remove(network),
+  /// fed and closed as a place's stream (the GLP paper f265fec,
+  /// appendix-guards, "Networking seam"; IGLP 07a2b00, Definition "Seam
+  /// Predicates"), kept whether a networking layer is bound or none is.
+  late final PlaceStreams networkStreams = PlaceStreams(this);
+
   /// The declarations made to the networking layer that stand, kept so that
   /// a restart makes each to the new layer again (seam_declarations.dart;
   /// IGLP 0c77e47, Implementation Notes, "Persistence").
@@ -156,13 +171,18 @@ class GlpRuntime {
   /// '_step_clock'.
   final SimClock simClock = SimClock();
 
-  /// The person's identity this runtime holds: the key `self_key/1` answers,
-  /// `sign/3` signs under, and the compiler certifies modules with. Set by the
-  /// engine at construction (multiagent/identity.dart); for an agent, the key
-  /// pair the runtime makes when it spawns the agent, before anything is
-  /// compiled or sent (GLP-Spec appendix-guards.tex, "Identity and
-  /// signature"; IGLP, Implementation Notes, "Boot").
-  PersonIdentity? identity;
+  /// What this runtime holds of the agent's identity: the public key
+  /// `self_key/1` answers and a certificate names, and a signature by the
+  /// networking layer, which holds the private key and signs with it, for
+  /// `sign/3` and the compiler's certificate (the GLP paper f265fec,
+  /// appendix-guards, "Identity and signature"; IGLP 07a2b00, Implementation
+  /// Notes, "The contract"; multiagent/identity.dart).  Set by the engine at
+  /// construction, a [LayerSigner] over the agent's layer, or over a layer of
+  /// the engine's own where it is given none ([GlpEngine.identity]); null in
+  /// a bare runtime, which holds no key.  The runtime keeps no
+  /// private key: a host makes the agent's key pair and hands it to the layer
+  /// at its instantiation (IGLP, "Boot" and "Persistence").
+  AgentSigner? identity;
 
   /// The person send_to_user/1 emits to, the '_output'/1 kernel's two ends
   /// (GLP-Spec appendix-guards.tex, "Output to the person": send_to_user(
@@ -227,6 +247,74 @@ class GlpRuntime {
 
   /// Goal [goalId] has passed when_idle: it no longer waits on it.
   void clearIdleWait(int goalId) => _idleWaits.remove(goalId);
+
+  // widowed_writer/1 and widowed_reader/1 (the GLP paper 07835e1, appendix-guards.tex, the guard table):
+  // a goal whose guard asks whether a variable's pair occurs anywhere, and
+  // finds it does, suspends as on when_idle: on the reader of a fresh
+  // variable, whose writer the scheduler binds at quiescence once the watched
+  // cell occurs nowhere ([wakeWidowed]), which re-tries the goal.  Keyed by
+  // goal, each with the cell it watches, in the order the goals first
+  // suspended.
+  final Map<int, ({HeapCell writer, HeapCell reader, HeapCell watched})>
+      _widowWaits = {};
+
+  /// Whether [cell], a writer or a reader, occurs in the agent's state: in a
+  /// goal of the resolvent, queued or suspended, other than [exceptGoal], the
+  /// goal being reduced, or in a link end the agent holds --- the roots the
+  /// state is saved from ([saveState], and in madGLP [MadContext.saveState])
+  /// and every cell they reach by an occurrence, a pairing being none
+  /// ([StateWriter.scan]).  A variable sent to another agent occurs in the
+  /// global_send goal, the record or the table entry of its link, until the
+  /// end is retired.
+  bool cellOccurs(HeapCell cell, {int? exceptGoal}) =>
+      _occurrences(exceptGoal: exceptGoal).contains(cell);
+
+  Set<HeapCell> _occurrences({int? exceptGoal}) {
+    final w = StateWriter.scan(exceptGoal: exceptGoal);
+    saveState(w);
+    final ctx = madContext;
+    if (ctx is MadContext) ctx.saveState(w, scanning: true);
+    return w.occurrences();
+  }
+
+  /// The reader goal [goalId] suspends on while it waits on widowed_writer/1 and widowed_reader/1 for
+  /// the cell [watched] to occur nowhere: the one it already waits on, or a
+  /// fresh one.
+  HeapCell widowReader(int goalId, HeapCell watched) {
+    final w = _widowWaits[goalId];
+    if (w != null && identical(w.watched, watched)) return w.reader;
+    final (writer, reader) = heap.allocateVariable();
+    _widowWaits[goalId] = (writer: writer, reader: reader, watched: watched);
+    return reader;
+  }
+
+  /// Goal [goalId] has passed widowed_writer/1 and widowed_reader/1: it no longer waits on it.
+  void clearWidowWait(int goalId) => _widowWaits.remove(goalId);
+
+  /// Some goal may be waiting on widowed_writer/1 and widowed_reader/1.
+  bool get hasWidowWaits => _widowWaits.isNotEmpty;
+
+  /// At quiescence, re-try every goal waiting on widowed_writer/1 and widowed_reader/1 whose watched cell
+  /// now occurs nowhere in the agent's state: bind the writer of the reader
+  /// it suspended on, which puts it back in the queue.  One scan of the state
+  /// serves every wait.  True if a goal was re-tried.  An entry whose goal
+  /// was re-tried by another of its readers wakes nothing and is dropped.
+  bool wakeWidowed() {
+    if (_widowWaits.isEmpty) return false;
+    final occurring = _occurrences();
+    var woke = false;
+    for (final goalId in _widowWaits.keys.toList()) {
+      final w = _widowWaits[goalId]!;
+      if (occurring.contains(w.watched)) continue;
+      _widowWaits.remove(goalId);
+      final reactivated = heap.bindVariableConst(w.writer, 0);
+      for (final goalRef in reactivated) {
+        enqueueReactivatedGoal(goalRef);
+      }
+      if (reactivated.isNotEmpty) woke = true;
+    }
+    return woke;
+  }
 
   /// The number of goals whose state the runtime holds: those in the queue
   /// or suspended, once every goal that ended has left ([goalEnded]).
@@ -404,7 +492,12 @@ class GlpRuntime {
     // the thing, first set first.  Registers, programs and modules are set
     // together, in the record's order; a budget and a wait reader begin
     // later, in the order of their clock ([_goalSeq]).
-    final withEnv = [for (final g in _goals.values) if (g.env != null) g];
+    // In a scan for widowed_writer/1 and widowed_reader/1 the goal being reduced is left out
+    // ([StateWriter.scan], exceptGoal): its own arguments are no occurrence.
+    final withEnv = [
+      for (final g in _goals.values)
+        if (g.env != null && g.id != w.exceptGoal) g
+    ];
     w.uint(withEnv.length);
     for (final g in withEnv) {
       final env = g.env!;
@@ -473,9 +566,20 @@ class GlpRuntime {
       w.cell(pair.writer);
       w.cell(pair.reader);
     }
+    // The goals waiting on widowed_writer/1 and widowed_reader/1, each with the cell it watches, which
+    // is written as a pairing: the wait is no occurrence of it.
+    w.uint(_widowWaits.length);
+    for (final MapEntry(key: id, value: wait) in _widowWaits.entries) {
+      w.uint(id);
+      w.cell(wait.writer);
+      w.cell(wait.reader);
+      w.pairedCell(wait.watched);
+    }
     placeStreams.saveState(w);
     nearbyStreams.saveState(w);
     reachableStreams.saveState(w);
+    publicAddressStreams.saveState(w);
+    networkStreams.saveState(w);
     seamDeclarations.saveState(w);
   }
 
@@ -538,9 +642,17 @@ class GlpRuntime {
       final writer = r.cell();
       _idleWaits[id] = (writer: writer, reader: r.cell());
     }
+    for (var i = r.uint(); i > 0; i--) {
+      final id = r.uint();
+      final writer = r.cell();
+      final reader = r.cell();
+      _widowWaits[id] = (writer: writer, reader: reader, watched: r.cell());
+    }
     placeStreams.restoreState(r);
     nearbyStreams.restoreState(r);
     reachableStreams.restoreState(r);
+    publicAddressStreams.restoreState(r);
+    networkStreams.restoreState(r);
     seamDeclarations.restoreState(r);
   }
 

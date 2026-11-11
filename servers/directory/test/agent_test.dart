@@ -17,7 +17,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:directory_server/agent.dart';
 import 'package:directory_server/mail.dart';
@@ -212,7 +211,6 @@ void main() {
       agentId: 'app-$fill',
       program: appPath,
       rootSelfGlpPath: rootSelf,
-      keyPair: (pub: key, priv: Uint8List.fromList(id.privateKey)),
       network: HeadlessGlpNetwork(layer),
     );
     addTearDown(agent.dispose);
@@ -440,7 +438,7 @@ void main() {
     addTearDown(layer.dispose);
     final key = glp.PubKey.fromList(id.publicKey);
     final agent = AgentRuntime(agentId: 'app-6c', program: appPath, rootSelfGlpPath: rootSelf,
-        keyPair: (pub: key, priv: Uint8List.fromList(id.privateKey)), network: HeadlessGlpNetwork(layer));
+        network: HeadlessGlpNetwork(layer));
     addTearDown(agent.dispose);
     final a = _App(key, layer, agent);
     agent.onUserOutput = a.say;
@@ -550,10 +548,14 @@ class _Directory {
   bool _stopped = false;
   _Directory(this.agent, this.web, this.mail, this.base, this.udp, this.lines);
   Store get store => agent.store;
+  /// The directory terminates as its server does at its termination signal:
+  /// the agent's state saved, then the launch ended (IGLP d70ec2e,
+  /// Implementation Notes, "Persistence").
   Future<void> stop() async {
     if (_stopped) return;
     _stopped = true;
     await web.close(force: true);
+    expect(await agent.save(), isTrue, reason: 'the state is kept');
     await agent.dispose();
   }
 }

@@ -9,9 +9,7 @@ import 'messages_actions.dart';
 /// Returns `true` if the action should be dropped (the existing status is
 /// already at a terminal-ish state that this action would regress).
 bool _isTerminalForRegression(MessageStatus status) =>
-    status == MessageStatus.delivered ||
-    status == MessageStatus.read ||
-    status == MessageStatus.failed;
+    status == MessageStatus.delivered || status == MessageStatus.read;
 
 /// Reducer for messages state
 MessagesState messagesReducer(MessagesState state, MessageAction action) {
@@ -20,7 +18,7 @@ MessagesState messagesReducer(MessagesState state, MessageAction action) {
     final existing = state.outgoingMessages[action.messageId];
 
     if (existing != null) {
-      // Never regress from delivered/read/failed. The drain dispatches
+      // Never regress from delivered/read. The drain dispatches
       // MessageSendingAction blindly; if the message was already delivered
       // (e.g. ACK arrived before the drain picked it up), this would
       // otherwise wipe `deliveredAt` and flip the UI checkmarks backward.
@@ -84,8 +82,11 @@ MessagesState messagesReducer(MessagesState state, MessageAction action) {
     if (existing == null) return state;
 
     // `sent → queued` is legitimate (a re-queue after a failed attempt);
-    // `delivered/read/failed → queued` is a regression and gets dropped.
-    if (_isTerminalForRegression(existing.status)) {
+    // `delivered/read → queued` is a regression and gets dropped.  A failed
+    // message stays failed while it waits: only a new attempt
+    // ([MessageSendingAction]) moves it on.
+    if (_isTerminalForRegression(existing.status) ||
+        existing.status == MessageStatus.failed) {
       return state;
     }
 
