@@ -38,7 +38,7 @@ The check needs Dart and takes about a minute. Build needs `vendor/` (below).
 | `examples/unicorn` | Unicorn Grocery rules (excerpt) | GCoop | LWGU |
 | `examples/moloch` | Moloch v1 README, overview | SC | LWGM |
 
-All four pass `cascade.sh <name> --check` (syntactically grassroots, with wards). None is compiled into an app: `pragmas.sh` does not yet read the button lines that the generator writes for an organisation's motions.
+All four pass `cascade.sh <name> --check` (syntactically grassroots, with wards). None is compiled into an app yet.
 
 ## The web page
 
