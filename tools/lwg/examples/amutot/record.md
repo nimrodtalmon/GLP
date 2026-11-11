@@ -39,7 +39,7 @@
 | Act | Decided by | Rule |
 |---|---|---|
 | every other act | members | more than half of the votes cast are for, and at least a quarter of the members voted, and the motion was moved at least 10 days before |
-| coop_join | committee members | more than half of the votes cast are for |
+| admit a member | committee members | more than half of the votes cast are for |
 
 ## Contract
 
@@ -50,7 +50,7 @@
     1. ■ Founding.  Alice may found Orga and become its first member.
     2. ■ Admission.  Bob becomes a member of Orga by an act of Bob and the committee members.
     3. ■ Voting against.  A member or a committee member may vote against a proposed act of Orga, once, in place of voting for it.
-    4. ■ Appeal.  Bob, whom the committee members did not admit, becomes a member of Orga by an act of Bob and the members.
+    4. ■ Appeal.  Bob becomes a member of Orga also by an act of Bob and the members.
     5. ■ Filling a seat.  The committee members may appoint a member to the committee.
 
 Check: `lwga: verdict: syntactically_grassroots_with_wards(acquaint, [org], [guardianship(org, created, creator)], [], [identity, person])`

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LWG Document to GrassApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:wght@500&display=swap" rel="stylesheet">
+<style>
+:root{ /* layout: one column of panels; lists scroll inside fixed boxes */
+  --bg:#f6f7f3; --panel:#ffffff; --ink:#1b231d; --muted:#667068; --line:#d8ddd4; --accent:#2c6a3c; --accent-soft:#e3efe5;
+  --ok:#2c6a3c; --warn:#8a6100; --bad:#a23b2c; --warn-soft:#f6ecd2; --bad-soft:#f6e1dc; --idle-soft:#eceee9;
+  --display:"IBM Plex Serif",Georgia,serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ color-scheme:dark;
+  --bg:#141a16; --panel:#1b231e; --ink:#e6ebe4; --muted:#98a39a; --line:#2e3a31; --accent:#7fc48d; --accent-soft:#213528;
+  --ok:#7fc48d; --warn:#e0b455; --bad:#e58a7a; --warn-soft:#3a3018; --bad-soft:#3d231e; --idle-soft:#252e28; } }
+:root[data-theme="dark"]{ color-scheme:dark;
+  --bg:#141a16; --panel:#1b231e; --ink:#e6ebe4; --muted:#98a39a; --line:#2e3a31; --accent:#7fc48d; --accent-soft:#213528;
+  --ok:#7fc48d; --warn:#e0b455; --bad:#e58a7a; --warn-soft:#3a3018; --bad-soft:#3d231e; --idle-soft:#252e28; }
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--display);font-weight:500;font-size:24px;margin:0;text-wrap:balance}
+h2{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+p{margin:0}
+.lead{color:var(--muted);max-width:62ch}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;color:inherit;cursor:pointer}
+.pick{border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:6px}
+.pick[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--bg);font-weight:500}
+button:focus-visible,select:focus-visible,input:focus-visible,.prov:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.step{border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--panel)}
+.step b{display:block;font-weight:600}
+.step span{color:var(--muted);font-size:13px}
+.chip{display:inline-block;font-size:12px;padding:1px 7px;border-radius:10px;background:var(--idle-soft);color:var(--muted);white-space:nowrap}
+.chip.built{background:var(--accent-soft);color:var(--ok)} .chip.absorbed{background:var(--accent-soft);color:var(--ok)}
+.chip.notbuilt{background:var(--warn-soft);color:var(--warn)} .chip.open{background:var(--bad-soft);color:var(--bad)}
+.two{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:12px}
+.list{height:330px;overflow-y:auto;border:1px solid var(--line);border-radius:6px}
+.prov{display:grid;grid-template-columns:44px 1fr auto;gap:8px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:7px 10px}
+.prov[aria-current="true"]{background:var(--accent-soft)}
+.prov .id{font-family:var(--mono);font-size:13px}
+.prov .kind{color:var(--muted);font-size:13px}
+.detail{height:330px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.detail dt{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.detail dd{margin:2px 0 0}
+dl{margin:0;display:flex;flex-direction:column;gap:10px}
+.src{font-size:14px;border-left:3px solid var(--line);padding-left:10px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.scrollx{overflow-x:auto}
+.contract{font-family:var(--mono);font-size:13px;white-space:pre-wrap;max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:12px;margin:0}
+.try{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+.result{margin-top:12px;padding:10px 12px;border-radius:6px;background:var(--idle-soft)}
+.result.pass{background:var(--accent-soft)} .result.fail{background:var(--bad-soft)}
+.result b{font-weight:600}
+.result ul{margin:6px 0 0;padding-left:18px}
+.note{color:var(--muted);font-size:13px}
+a{color:var(--accent)}
+@media (max-width:640px){ .two{grid-template-columns:1fr} .steps{grid-template-columns:repeat(2,1fr)} .try{grid-template-columns:repeat(2,minmax(0,1fr))} .list{height:240px} .detail{height:auto;max-height:320px} }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>From a governing document to a GrassApp</h1>
+    <p class="lead">LWG reads the rules an organization already has and turns them into a grassroots contract, keeping a record of what became of every provision. Prototype: two documents, each carried through four modules.</p>
+  </header>
+
+  <div class="row" id="picks" role="group" aria-label="Document"></div>
+
+  <section class="panel">
+    <h2 id="doc-title">Document</h2>
+    <p id="doc-meta" class="note"></p>
+    <div class="steps" style="margin-top:12px" id="steps"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Record: one row for each provision</h2>
+    <div class="two">
+      <div class="list" id="list"></div>
+      <div class="detail" id="detail"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Bylaws: who decides, and by which rule</h2>
+    <div class="scrollx"><table id="bylaws"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Try a decision</h2>
+    <div class="try">
+      <label for="t-act">Act<select id="t-act"></select></label>
+      <label for="t-n"><span id="t-n-label">Members</span><input id="t-n" type="number" min="1" value="20"></label>
+      <label for="t-for">Votes for<input id="t-for" type="number" min="0" value="4"></label>
+      <label for="t-against">Votes against<input id="t-against" type="number" min="0" value="2"></label>
+      <label for="t-days">Days since moved<input id="t-days" type="number" min="0" value="12"></label>
+    </div>
+    <div class="result" id="result" aria-live="polite"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Contract</h2>
+    <pre class="contract" id="contract"></pre>
+    <p class="note" id="check" style="margin-top:8px"></p>
+  </section>
+
+  <p class="note">■ enforced: the app does not allow a breach. ○ undertaken: a promise on record. The app itself is not built yet; the contract passes the check that every grassroots contract must pass.</p>
+</main>
+<script>
+const DATA = /*DATA*/;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let cur = 0, sel = 0;
+const cls = s => s.replace(/\s/g, '');
+
+function evaluate(rule, n, f, a, days){
+  const lines = []; let ok = true;
+  const add = (pass, text) => { lines.push((pass ? 'Met: ' : 'Not met: ') + text); if(!pass) ok = false; };
+  if(rule.policy){
+    const k = rule.policy[0];
+    if(k === 'one') add(f >= 1, 'one ' + rule.body_name + ' decides (' + f + ' for)');
+    if(k === 'all') add(f >= n, 'all ' + n + ' vote for (' + f + ' for)');
+    if(k === 'majority') add(2*f > n, 'more than half of ' + n + ' vote for (' + f + ' for)');
+    return {ok, lines};
+  }
+  const t = rule.threshold, cast = f + a;
+  if(t[0] === 'count') add(f >= t[1], t[1] + ' vote for (' + f + ' for)');
+  else {
+    const base = rule.base === 'cast' ? cast : n, lhs = t[1]*f, rhs = t[0]*base;
+    add(t[2] ? lhs > rhs : (lhs >= rhs && base > 0), (t[2] ? 'more than ' : 'at least ') + t[0] + '/' + t[1] + ' of ' + (rule.base === 'cast' ? 'the ' + cast + ' votes cast' : 'all ' + n) + ' are for (' + f + ' for)');
+  }
+  if(rule.quorum) add(rule.quorum[1]*cast >= rule.quorum[0]*n, 'at least ' + rule.quorum[0] + '/' + rule.quorum[1] + ' of ' + n + ' voted (' + cast + ' voted)');
+  if(rule.open_days) add(days >= rule.open_days, 'moved at least ' + rule.open_days + ' days before (' + days + ' days)');
+  return {ok, lines};
+}
+
+function tryIt(){
+  const d = DATA[cur], act = d.acts[$('t-act').value] || d.acts[0], rule = d.rules[act.rule];
+  const n = Math.max(1, +$('t-n').value || 1), f = Math.max(0, +$('t-for').value || 0), a = Math.max(0, +$('t-against').value || 0), days = Math.max(0, +$('t-days').value || 0);
+  $('t-n-label').textContent = rule.body_name.charAt(0).toUpperCase() + rule.body_name.slice(1) + 's';
+  const r = $('result');
+  if(f + a > n){ r.className = 'result fail'; r.innerHTML = '<b>More votes than ' + esc(rule.body_name) + 's.</b> Lower the votes or raise the number.'; return; }
+  const e = evaluate(rule, n, f, a, days);
+  r.className = 'result ' + (e.ok ? 'pass' : 'fail');
+  r.innerHTML = '<b>' + (e.ok ? 'Decided: the act can be taken.' : 'Not decided.') + '</b> Rule: ' + esc(rule.english) + '.<ul>' + e.lines.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>';
+}
+
+function showDetail(){
+  const d = DATA[cur], r = d.rows[sel];
+  $('detail').innerHTML = '<dl>'
+    + '<div><dt>Provision ' + esc(r.id) + '</dt><dd class="src" dir="auto" lang="' + d.lang + '">' + esc(r.text) + '</dd></div>'
+    + '<div><dt>Kind</dt><dd>' + esc(r.kind) + (r.note ? ' <span class="note">(' + esc(r.note) + ')</span>' : '') + '</dd></div>'
+    + '<div><dt>Became</dt><dd>' + esc(r.mapped_to) + ' <span class="chip ' + cls(r.status) + '">' + esc(r.status) + '</span></dd></div>'
+    + (r.question ? '<div><dt>Question</dt><dd>' + esc(r.question) + '</dd></div><div><dt>Answer</dt><dd>' + (r.answer ? esc(r.answer) : '<span class="note">not answered; the default was used</span>') + '</dd></div>' : '')
+    + '</dl>';
+  document.querySelectorAll('.prov').forEach((b, i) => b.setAttribute('aria-current', i === sel ? 'true' : 'false'));
+}
+
+function render(){
+  const d = DATA[cur];
+  $('picks').innerHTML = DATA.map((x, i) => '<button class="pick" aria-pressed="' + (i === cur) + '" data-i="' + i + '">' + esc(x.label) + '</button>').join('');
+  $('doc-title').textContent = d.title;
+  $('doc-meta').innerHTML = 'Source: <a href="' + esc(d.link) + '">' + esc(d.source) + '</a>. Built on the grassroots organization ' + esc(d.base) + '.';
+  const c = s => d.rows.filter(r => r.status === s).length, q = d.rows.filter(r => r.question).length, ans = d.rows.filter(r => r.answer).length;
+  $('steps').innerHTML = [['Read', d.rows.length + ' provisions'], ['Map', c('built') + ' built, ' + c('absorbed') + ' absorbed'], ['Review', q + ' questions, ' + ans + ' answered'], ['Build', d.passed ? 'check passed' : 'check failed']]
+    .map(s => '<div class="step"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>').join('');
+  $('list').innerHTML = d.rows.map((r, i) => '<button class="prov" data-i="' + i + '"><span class="id">' + esc(r.id) + '</span><span class="kind">' + esc(r.kind) + '</span><span class="chip ' + cls(r.status) + '">' + esc(r.status) + '</span></button>').join('');
+  $('bylaws').innerHTML = '<tr><th>Act</th><th>Decided by</th><th>Rule</th></tr>' + d.acts.map(a => '<tr><td>' + esc(a.act) + '</td><td>' + esc(d.rules[a.rule].body_name) + 's</td><td>' + esc(d.rules[a.rule].english) + '</td></tr>').join('');
+  $('t-act').innerHTML = d.acts.map((a, i) => '<option value="' + i + '">' + esc(a.act) + '</option>').join('');
+  $('contract').textContent = d.contract.join('\n');
+  $('check').textContent = d.passed ? 'Check of the cascade: passed (syntactically grassroots, with wards).' : 'Check of the cascade: not passed.';
+  sel = 0; showDetail(); tryIt();
+}
+$('picks').addEventListener('click', e => { const b = e.target.closest('.pick'); if(b){ cur = +b.dataset.i; render(); } });
+$('list').addEventListener('click', e => { const b = e.target.closest('.prov'); if(b){ sel = +b.dataset.i; showDetail(); } });
+['t-act','t-n','t-for','t-against','t-days'].forEach(id => $(id).addEventListener('input', tryIt));
+render();
+</script>
+</body>
+</html>

@@ -3,7 +3,6 @@
  "title": "Association under the Israeli Model Bylaws",
  "source": "Amutot Law, 5740-1980, First Schedule",
  "base": "GCoop",
- "noun": "association",
  "roles": {
   "1": "member",
   "2": "committee member"
@@ -189,12 +188,24 @@
   "coop_join_appeal": {
    "copy_of": "coop_join",
    "rule": "meeting",
-   "clause": "Appeal.  Bob, whom the committee members did not admit, becomes a member of Orga by an act of Bob and the members."
+   "clause": "Appeal: Bob becomes a member of Orga also by an act of Bob and the members."
   },
   "coop_board_fill": {
    "copy_of": "coop_board",
    "rule": "committee",
-   "clause": "Filling a seat.  The committee members may appoint a member to the committee."
+   "clause": "Filling a seat: the committee members appoint a member to the committee."
   }
+ },
+ "definition": "An association is a cooperative with two roles, member, held by every participant, and committee member; the committee members decide the admission of a member when {committee}; the members decide every other act of the association when {meeting}.",
+ "names": "Alice and Bob are persons, Orga an association.",
+ "clauses": [
+  "■ Founding.  Alice may found Orga and become its first member.",
+  "■ Admission.  Bob becomes a member of Orga by an act of Bob and the committee members.",
+  "■ Voting against.  A member or a committee member may vote against a proposed act of Orga, once, in place of voting for it.",
+  "■ Appeal.  Bob becomes a member of Orga also by an act of Bob and the members.",
+  "■ Filling a seat.  The committee members may appoint a member to the committee."
+ ],
+ "act_names": {
+  "coop_join": "admit a member"
  }
 }

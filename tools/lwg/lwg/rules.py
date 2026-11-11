@@ -42,6 +42,12 @@ def english(r, roles):
     if r.get('open_days'): s += ', and the motion was moved at least %d days before' % r['open_days']
     return s
 
+POLICY_WORDS = {'majority': 'more than half of the %ss vote for', 'all': 'all the %ss vote for', 'one': 'one %s decides'}
+def describe(r, roles):
+    """English of a rule, ours or one of the organisations paper's (given as {"policy": [kind, role]})."""
+    if 'policy' in r: return POLICY_WORDS[r['policy'][0]] % roles[str(r['policy'][1])]
+    return english(r, roles)
+
 def as_policy(r):
     """A rule that the organisations paper already has, in its generator's terms; else None."""
     t = r['threshold']

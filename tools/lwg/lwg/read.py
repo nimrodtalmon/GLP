@@ -27,8 +27,24 @@ def wikisource_statute(text):
         if m and rows: rows[-1]['text'] += ' (%s) %s' % (m.group(1) or '', clean(m.group(2)))
     return rows
 
-def run(source_path, kinds_path):
-    rows = wikisource_statute(open(source_path, encoding='utf8').read())
+def headed_articles(text):
+    """Provisions of a document whose articles are headed by Roman numerals: the preamble, each article, and each article's examples."""
+    rows, cur = [], {'id': '0', 'text': ''}
+    for line in text.split('\n'):
+        m = re.match(r'^([IVX]+)\. (.*)', line)
+        if m:
+            rows.append(cur); cur = {'id': m.group(1), 'text': m.group(2) + ':'}; continue
+        if line.strip() == 'Examples' and cur['id'] != '0':
+            rows.append(cur); cur = {'id': cur['id'] + ' ex', 'text': 'Examples:'}; continue
+        if line.strip(): cur['text'] += ' ' + line.strip()
+    rows.append(cur)
+    for r in rows: r['text'] = r['text'].strip()
+    return rows
+
+FORMATS = {'wikisource_statute': wikisource_statute, 'headed_articles': headed_articles}
+
+def run(source_path, kinds_path, fmt='wikisource_statute'):
+    rows = FORMATS[fmt](open(source_path, encoding='utf8').read())
     kinds = json.load(open(kinds_path, encoding='utf8'))
     missing = [r['id'] for r in rows if r['id'] not in kinds]
     assert not missing, 'no kind for provisions %s' % missing

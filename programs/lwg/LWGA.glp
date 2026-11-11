@@ -704,7 +704,7 @@ contract_named(lwga, environment([today],
         atom(motion_coop_join, ['Orga', xpa, 'Bob'])],
        and(eq(num(via), cardinality([v1a], atom(vote, ['Orga', v1a, xpa, num(2)]), true)), and(eq(num(vna), cardinality([v2a], atom(officer, ['Orga', v2a, num(2)]), true)), and(gt(mul(num(2), num(via)), mul(num(1), plus(num(via), num(nia)))), eq(num(nia), cardinality([v3a], atom(nay, ['Orga', v3a, xpa, num(2)]), true))))),
        ['Bob', 'Otto']),
-%% Appeal.  Bob, whom the committee members did not admit, becomes a member of Orga by an act of Bob and the members.  Decided by: more than half of the votes cast are for, and at least a quarter of the holder of role 1s voted, and the motion was moved at least 10 days before.
+%% Appeal: Bob becomes a member of Orga also by an act of Bob and the members.  Decided by: more than half of the votes cast are for, and at least a quarter of the holder of role 1s voted, and the motion was moved at least 10 days before.
     sas(coop_join_appeal, ['Bob', 'Orga', 'Otto', v1a, v2a, v3a], [xpa, via, vna, mda, tda, nia],
        [atom(participates, ['Bob', 'Orga']),
         atom(officer_of, ['Bob', 'Orga', num(1)]),
@@ -733,7 +733,7 @@ contract_named(lwga, environment([today],
         atom(today, ['Orga', num(tda)])],
        and(eq(num(via), cardinality([v1a], atom(vote, ['Orga', v1a, xpa, num(1)]), true)), and(eq(num(vna), cardinality([v2a], atom(officer, ['Orga', v2a, num(1)]), true)), and(gt(mul(num(2), num(via)), mul(num(1), plus(num(via), num(nia)))), and(eq(num(nia), cardinality([v3a], atom(nay, ['Orga', v3a, xpa, num(1)]), true)), and(ge(mul(num(4), plus(num(via), num(nia))), mul(num(1), num(vna))), ge(num(tda), plus(num(mda), num(10)))))))),
        ['Bob', 'Otto']),
-%% Filling a seat.  The committee members may appoint a member to the committee.  Decided by: more than half of the votes cast are for.
+%% Filling a seat: the committee members appoint a member to the committee.  Decided by: more than half of the votes cast are for.
     sas(coop_board_fill, ['Orga', 'Bob', 'Otto', v1a, v2a, v3a], [xpa, via, vna, nia],
        [atom(officer, ['Orga', 'Bob', num(2)]),
         atom(officer_of, ['Bob', 'Orga', num(2)]),

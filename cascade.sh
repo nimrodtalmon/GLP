@@ -177,6 +177,7 @@ case "$1" in
     gd)   FILE=GD;   OWNER="programs/ggga";             PAPER="/Users/udi/Grassroots/SRC";  PLAYDIR="" ;;   # SRC, a paper of the GGGA project, prints GD (Udi, 2026-11-05; GGGA #3)
     gd_s) FILE=GD-S; OWNER="programs/ggga";             PAPER="/Users/udi/Grassroots/SRC";  PLAYDIR="" ;;
     gdo_l) FILE=GDO-L; OWNER="programs/gff";            PAPER="/Users/udi/Grassroots/GFF";  PLAYDIR="" ;;   # GFF's, extends GDO (Udi, 2026-11-05; GFF #3)
+    lwge) FILE=LWGE; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
     lwga) FILE=LWGA; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
     dao) FILE=DAO;  OWNER="programs/gce/dao";         PAPER="";                            PLAYDIR="" ;;   # Nimrod Talmon's example contract, extends GKK (pull request 9; GCE, Grassroots Contract Examples, Nimrod Talmon's: Udi, 2026-11-09)
     ldao) FILE=LDAO; OWNER="programs/gce/ldao";        PAPER="";                            PLAYDIR="" ;;   # Nimrod Talmon's example contract, extends DAO (pull request 9; GCE, Grassroots Contract Examples, Nimrod Talmon's: Udi, 2026-11-09)
