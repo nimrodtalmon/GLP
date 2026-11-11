@@ -20,5 +20,3 @@ Not built yet: windows (periods), weight by shares, decisions of two bodies, abs
 `vendor/` is a copy of `docs/tools` and the paper of the organisations project, taken 2026-11-11.
 
 `vendor/` is not in the repository: it holds a copy of the generator and the paper of the organisations project, which are not public yet. To run Build, put the organisations project's `docs/tools/*.py` in `vendor/go_tools/` and its main `.tex` at `vendor/go_paper.tex`.
-
-First run: 2026-11-11, against EShapiro2/GLP main at f228c88; verdict of the check: syntactically_grassroots_with_wards.

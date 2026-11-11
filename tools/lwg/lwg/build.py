@@ -1,5 +1,5 @@
 """Build: write the grassroots contract (clauses and schemas) from the bylaws, and put it to the cascade's check."""
-import os, re, subprocess, sys
+import copy, os, re, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'vendor', 'go_tools'))
 import sas_coop, sas_prag
 from sas_lib import glp_file, check_names, check_dups
@@ -12,7 +12,11 @@ def schemas(m):
     name = m['name']
     c = sas_coop.gcoop(bylaws='bylaws_' + name.lower())          # the cooperative of the organisations paper, with our bylaws' name
     c = [x for x in c if x.name not in ('first_officer', 'named_propose', 'named_vote')]   # as the generator does for an instance
+    for new, spec in m.get('also', {}).items():                   # a second way to take an act: the same act, decided by another body
+        y = copy.deepcopy([x for x in c if x.name == spec['copy_of']][0]); y.name = new
+        y.note = spec['clause']; c.append(y)
     bylaws = {act: m['rules'][r] for act, r in m['acts'].items()}
+    bylaws.update({new: m['rules'][spec['rule']] for new, spec in m.get('also', {}).items()})
     c = rules.officers(c, bylaws)
     check_names(c); assert not check_dups(c)
     return c
@@ -30,6 +34,8 @@ def clauses(m):
              '1. ■ Founding.  Alice may found Orga and become its first %s.' % roles['1'],
              '2. ■ Admission.  Bob becomes a %s of Orga by an act of Bob and the %ss.' % (roles['1'], roles['2']),
              '3. ■ Voting against.  A %s or a %s may vote against a proposed act of Orga, once, in place of voting for it.' % (roles['1'], roles['2'])]
+    for i, spec in enumerate(m.get('also', {}).values(), 4):
+        lines.append('%d. ■ %s' % (i, spec['clause']))
     return lines
 
 def write(m, glp_root):

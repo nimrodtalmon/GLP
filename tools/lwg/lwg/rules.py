@@ -7,7 +7,8 @@ A rule is a dict:
   threshold  [p, q, strict]             (votes for must exceed p/q of the base if strict, else reach it)
              or ['count', k]            (k holders must vote for)
   quorum     None | [a, b]              (at least a/b of the body must vote for or against)
-  window     None                       (days; not built yet)
+  open_days  None | n                   (a motion can be decided only n days or more after it was moved)
+  window     None                       (days after which an undecided motion fails; not built yet)
 The four rules of the grassroots organisations paper are special cases and are passed through to its generator unchanged.
 """
 import copy, os, sys
@@ -38,11 +39,13 @@ def english(r, roles):
     if r.get('quorum'):
         a, b = r['quorum']
         s += ', and at least %s of the %s voted' % (FRACTION.get((a, b), '%d/%d' % (a, b)), who)
+    if r.get('open_days'): s += ', and the motion was moved at least %d days before' % r['open_days']
     return s
 
 def as_policy(r):
     """A rule that the organisations paper already has, in its generator's terms; else None."""
     t = r['threshold']
+    if r.get('open_days'): return None
     if r['base'] == 'all' and not r.get('quorum') and t[0] != 'count':
         if (t[0], t[1], t[2]) == (1, 2, True): return ('majority', r['body'])
         if (t[0], t[1], t[2]) == (1, 1, False): return ('all', r['body'])
@@ -70,6 +73,14 @@ def _apply(x, org, r, extra):
     if r.get('quorum'):
         a, b = r['quorum']
         parts.append("ge(mul(num(%d), %s), mul(num(%d), num(%s)))" % (b, cast, a, vn))
+    if r.get('open_days'):                                           # the motion records the day it was moved; the act needs that day to be far enough back
+        md, td = 'md' + tg, 'td' + tg
+        mv = [e for e in extra if e.name.endswith('_' + x.name) and e.name.startswith('move')][-1]
+        mv.head.append(A('moved_on', Q(org), xp, num(md))); mv.body.append(A('today', Q(org), num(md))); mv.vars.append(md)
+        x.body += [A('moved_on', Q(org), xp, num(md)), A('today', Q(org), num(td))]
+        x.head.append(N(A('moved_on', Q(org), xp, num(md))))
+        x.vars += [md, td]
+        parts.append("ge(num(%s), plus(num(%s), num(%d)))" % (td, md, r['open_days']))
     x.cons = x.cons.replace(old, AND(*parts))
     x.vars.append(ni); x.names.append(v3)
     x.head.append(N(A('nay', Q(org), '_', xp, '_')))                 # the votes against a decided motion are cleared with the votes for
