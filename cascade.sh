@@ -187,6 +187,7 @@ case "$1" in
     lwga) FILE=LWGA; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
     lwgx) FILE=LWGX; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
     lwgu) FILE=LWGU; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
+    lwgm) FILE=LWGM; OWNER="programs/lwg"; PAPER=""; PLAYDIR="" ;;
     dao) FILE=DAO;  OWNER="programs/gce/dao";         PAPER="";                            PLAYDIR="" ;;   # Nimrod Talmon's example contract, extends GKK (pull request 9; GCE, Grassroots Contract Examples, Nimrod Talmon's: Udi, 2026-11-09)
     ldao) FILE=LDAO; OWNER="programs/gce/ldao";        PAPER="";                            PLAYDIR="" ;;   # Nimrod Talmon's example contract, extends DAO (pull request 9; GCE, Grassroots Contract Examples, Nimrod Talmon's: Udi, 2026-11-09)
     fdao) FILE=FDAO; OWNER="programs/gce/fdao";        PAPER="";                            PLAYDIR="" ;;   # Nimrod Talmon's example contract, extends DAO and GB (pull request 9; GCE, Grassroots Contract Examples, Nimrod Talmon's: Udi, 2026-11-09)

@@ -80,7 +80,7 @@ code{font-family:var(--mono);font-size:13px}
 <main>
   <header>
     <h1>From a governing document to a GrassApp</h1>
-    <p class="lead">LWG reads the rules an organization already has and turns them into a grassroots contract, keeping a record of what became of every provision. Prototype: three documents carried through four modules, and a way to bring your own.</p>
+    <p class="lead">LWG reads the rules an organization already has and turns them into a grassroots contract, keeping a record of what became of every provision. Prototype: four documents carried through four modules, and a way to bring your own.</p>
   </header>
 
   <div class="row" id="picks" role="group" aria-label="Document"></div>
@@ -143,7 +143,7 @@ code{font-family:var(--mono);font-size:13px}
     <p class="note" id="check" style="margin-top:8px"></p>
   </section>
 
-  <p class="note">■ enforced: the app does not allow a breach. ○ undertaken: a promise on record. The app itself is not built yet; the three prepared contracts pass the check that every grassroots contract must pass.</p>
+  <p class="note">■ enforced: the app does not allow a breach. ○ undertaken: a promise on record. The app itself is not built yet; the four prepared contracts pass the check that every grassroots contract must pass.</p>
 </main>
 <script>
 const DATA = /*DATA*/;
@@ -261,7 +261,7 @@ function render(){
   $('steps').innerHTML = [['Read', d.rows.length + ' provisions'], ['Map', c('built') + ' built, ' + c('absorbed') + ' absorbed'], ['Review', q + ' questions, ' + ans + ' answered'], ['Build', d.passed === null ? 'not run yet' : d.passed ? 'check passed' : 'check failed']]
     .map(s => '<div class="step"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>').join('');
   $('list').innerHTML = d.rows.map((r, i) => '<button class="prov" data-i="' + i + '"><span class="id">' + esc(r.id) + '</span><span class="kind">' + esc(r.kind) + '</span><span class="chip ' + cls(r.status) + '">' + esc(r.status) + '</span></button>').join('');
-  $('bylaws').innerHTML = '<tr><th>Act</th><th>Decided by</th><th>Rule</th></tr>' + d.acts.map(a => '<tr><td>' + esc(a.act) + '</td><td>' + esc(d.rules[a.rule].body_name) + 's</td><td>' + esc(d.rules[a.rule].english) + '</td></tr>').join('');
+  $('bylaws').innerHTML = '<tr><th>Act</th><th>Decided by</th><th>Rule</th></tr>' + d.acts.map(a => '<tr><td>' + esc(a.act) + '</td><td>' + esc(d.rules[a.rule].by || d.rules[a.rule].body_name + 's') + '</td><td>' + esc(d.rules[a.rule].english) + '</td></tr>').join('');
   $('t-act').innerHTML = d.acts.map((a, i) => '<option value="' + i + '">' + esc(a.act) + '</option>').join('');
   $('contract').textContent = d.contract.join('\n');
   $('check').textContent = d.passed === null ? 'The contract as Build will write it. The check has not run: download the bundle and run Build.' : d.passed ? 'Check of the cascade: passed (syntactically grassroots, with wards).' : 'Check of the cascade: not passed.';

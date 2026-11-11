@@ -2,7 +2,7 @@
 import json, os
 NAME = 'LWGX'      # every bundle builds the one trial contract LWGX
 
-def unpack(path, out):
+def unpack(path, out, name=NAME):
     b = json.load(open(path, encoding='utf8'))
     os.makedirs(out, exist_ok=True)
     w = lambda f, x: json.dump(x, open(os.path.join(out, f), 'w', encoding='utf8'), ensure_ascii=False, indent=1)
@@ -11,7 +11,7 @@ def unpack(path, out):
     w('meta.json', {'format': 'provisions', 'language': b.get('language', 'en'), 'link': b.get('link', '')})
     w('kinds.json', {str(p['id']): {'kind': p['kind'], 'note': p.get('note', '')} for p in ps})
     m = {k: b[k] for k in ('title', 'source', 'base', 'roles', 'rules', 'acts') }
-    m.update(name=NAME, undertakings=b.get('undertakings', []),
+    m.update(name=name, undertakings=b.get('undertakings', []),
              rows={str(p['id']): {'mapped_to': p['mapped_to'], 'status': p['status'], 'question': p.get('question', '')} for p in ps})
     w('map.json', m); w('answers.json', b.get('answers', {}))
     return out

@@ -1,6 +1,6 @@
 %% ---------------------------------------------------------------------------
 %% LWGE.glp --- LWGE, the speech-act schemas, written by tools/lwg from the bylaws drawn from: ENS DAO Constitution, docs.ens.domains.
-%% Instantiates GDAO (programs/go) and restricts it; the schemas of GCoop are produced by the generator of the organisations paper, called as a library, and the decision rules by tools/lwg/lwg/rules.py.
+%% Instantiates GDAO (programs/go) and restricts it; the schemas of GDAO are produced by the generator of the organisations paper, called as a library, and the decision rules by tools/lwg/lwg/rules.py.
 %% 55 schemas.
 %% Environment predicates: today.
 %% Instantiates the parameter bylaws_p by the utterance bylaws_lwge.

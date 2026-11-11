@@ -2,14 +2,14 @@
 import json, os
 from lwg import build, rules, map_
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXAMPLES = [('amutot', 'Israeli association'), ('ens', 'ENS DAO'), ('unicorn', 'Worker co-op (excerpt)')]
+EXAMPLES = [('amutot', 'Israeli association'), ('ens', 'ENS DAO'), ('unicorn', 'Worker co-op (excerpt)'), ('moloch', 'Moloch DAO')]
 
 def load(ex, label):
     d = os.path.join(HERE, 'examples', ex)
     j = lambda f: json.load(open(os.path.join(d, f), encoding='utf8'))
     m, meta, rows = map_.compose(j('map.json')), j('meta.json'), j('record.json')
     rl = {}
-    for k, r in m['rules'].items(): rl[k] = dict(r, english=rules.describe(r, m['roles']), body_name=m['roles'][str(r['policy'][1] if 'policy' in r else r['body'])])
+    for k, r in m['rules'].items(): rl[k] = dict(r, english=rules.describe(r, m['roles']), body_name='share' if r.get('weight') == 'shares' else m['roles'][str(r['policy'][1] if 'policy' in r else r['body'])], by=map_.by(m, r))
     acts = [{'act': 'every other act' if a == '*' else m.get('act_names', {}).get(a, a), 'rule': r} for a, r in m['acts'].items()]
     acts += [{'act': s['clause'].split(':')[0].lower(), 'rule': s['rule']} for s in m.get('also', {}).values()]
     v = open(os.path.join(d, 'verdict.txt')).read()
